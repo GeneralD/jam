@@ -5,6 +5,7 @@ Stdlib only. Run from anywhere: python3 -m unittest discover -s tests
 
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,8 +16,12 @@ HOOKS_JSON = ROOT / "hooks" / "hooks.json"
 MCP_JSON = ROOT / ".mcp.json"
 
 PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
-# Absolute paths, home-relative paths, and the usual home directory prefixes.
-ABSOLUTE_PATH = re.compile(r"(^|[\s\"'=])(/Users/|/home/|~/|/(?:usr|opt|etc|var|tmp)/)")
+# A token that starts with "/", "~", a home variable, a drive letter, or a UNC
+# prefix is an absolute or home-relative path. Tokens begin at the start of the
+# text, after whitespace, a quote, "=", or "(". "/dev/null" is allowed.
+ABSOLUTE_PATH = re.compile(
+    r"(?:^|[\s\"'=(])(?:/(?!dev/null\b)|~|\$HOME|\$\{HOME\}|[A-Za-z]:[\\/]|\\\\)"
+)
 
 
 def load_json(path):
@@ -49,6 +54,18 @@ def referenced_scripts(command):
         yield match.group(1)
 
 
+def script_problem(rel, root=ROOT):
+    """Return what is wrong with a plugin-relative script path, or None."""
+    if ".." in Path(rel).parts:
+        return f"{rel}: contains a '..' segment"
+    resolved = (root / rel).resolve()
+    if not resolved.is_relative_to(root.resolve()):
+        return f"{rel}: resolves outside the plugin"
+    if not resolved.is_file():
+        return f"{rel}: is not a file in the plugin"
+    return None
+
+
 class CommandCheckTest(unittest.TestCase):
     """The checks themselves must catch bad input, or an empty hooks.json
     would let them pass without proving anything."""
@@ -62,9 +79,33 @@ class CommandCheckTest(unittest.TestCase):
     def test_flags_home_directory_path(self):
         self.assertTrue(command_problems("${CLAUDE_PLUGIN_ROOT}/x.sh /Users/someone/y"))
 
+    def test_flags_absolute_paths_under_any_prefix(self):
+        for tail in ("/workspace/repo", "~/repo", "$HOME/repo", "${HOME}/repo", "C:\\repo", "\\\\host\\share", "--dir=/srv/x", '"/mnt/x"'):
+            with self.subTest(tail=tail):
+                self.assertTrue(command_problems("${CLAUDE_PLUGIN_ROOT}/x.sh " + tail))
+
+    def test_allows_dev_null_and_url_and_plugin_root_arguments(self):
+        for tail in ("2>/dev/null", "--url=https://example.com/x", '"${CLAUDE_PLUGIN_ROOT}/data"'):
+            with self.subTest(tail=tail):
+                self.assertEqual(command_problems("${CLAUDE_PLUGIN_ROOT}/x.sh " + tail), [])
+
     def test_extracts_referenced_scripts(self):
         command = 'python3 "${CLAUDE_PLUGIN_ROOT}/bin/jam" --flag'
         self.assertEqual(list(referenced_scripts(command)), ["bin/jam"])
+
+    def test_script_check_accepts_a_real_file(self):
+        self.assertIsNone(script_problem("tests/test_plugin_structure.py"))
+
+    def test_script_check_rejects_missing_directory_and_dotdot(self):
+        for rel in ("hooks/nope.sh", "hooks", "../outside", "hooks/../../outside"):
+            with self.subTest(rel=rel):
+                self.assertIsNotNone(script_problem(rel))
+
+    def test_script_check_rejects_a_symlink_that_leaves_the_plugin(self):
+        with tempfile.TemporaryDirectory() as outer, tempfile.TemporaryDirectory() as inner:
+            (Path(outer) / "real.sh").write_text("#!/bin/sh\n")
+            (Path(inner) / "link.sh").symlink_to(Path(outer) / "real.sh")
+            self.assertIn("outside", script_problem("link.sh", root=Path(inner)))
 
     def test_walks_nested_hook_structure(self):
         doc = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "c"}]}]}}
@@ -75,12 +116,13 @@ class ManifestTest(unittest.TestCase):
     def test_plugin_manifest_names_the_plugin(self):
         self.assertEqual(load_json(PLUGIN_JSON)["name"], "jam")
 
-    def test_marketplace_lists_this_plugin(self):
+    def test_marketplace_name_and_plugin_source_match_the_install_contract(self):
+        # Users install with jam@jam, and the plugin lives at the repo root.
         marketplace = load_json(MARKETPLACE_JSON)
-        self.assertTrue(marketplace["name"])
+        self.assertEqual(marketplace["name"], "jam")
         self.assertIn("name", marketplace["owner"])
-        names = [entry["name"] for entry in marketplace["plugins"]]
-        self.assertIn(load_json(PLUGIN_JSON)["name"], names)
+        entries = {entry["name"]: entry for entry in marketplace["plugins"]}
+        self.assertEqual(entries[load_json(PLUGIN_JSON)["name"]]["source"], "./")
 
     def test_plugin_and_marketplace_entry_agree(self):
         plugin = load_json(PLUGIN_JSON)
@@ -102,13 +144,13 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(problems, [])
 
     def test_every_referenced_script_exists(self):
-        missing = [
-            rel
+        problems = [
+            problem
             for command in hook_commands(load_json(HOOKS_JSON))
             for rel in referenced_scripts(command)
-            if not (ROOT / rel).exists()
+            if (problem := script_problem(rel))
         ]
-        self.assertEqual(missing, [])
+        self.assertEqual(problems, [])
 
 
 class HygieneTest(unittest.TestCase):
