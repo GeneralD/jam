@@ -84,5 +84,4 @@ harness nor a terminal so adapters can be added later.
 
 ## Not done yet
 
-- Hero image (the image backend was unavailable when the repo was created).
 - License is not chosen.
