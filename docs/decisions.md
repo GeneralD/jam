@@ -102,6 +102,12 @@ on the model to remember to use the tool did not work in a comparable
 canvas-based setup, while a hook fires on the event itself. Not forced on every
 edit, so legitimate direct edits are never blocked.
 
+Why delegate at all: a session started in the other repository loads that
+repository's own `.claude` instructions, rules, skills, and hooks into its
+context, so the work follows the local conventions. An edit made from outside
+never sees them. Orchestrating work across repositories this way is the main
+benefit of jam, and the guard exists to make it the default path.
+
 Limits: shell writes (`sed -i`, `git -C`, redirects) are not detected in v1.
 A delegation depth cap is required to prevent delegation loops.
 

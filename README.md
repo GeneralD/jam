@@ -20,6 +20,13 @@ repos instead of switching contexts by hand.
 - **Guard** against editing another repository directly: the first such edit in a
   session is denied once with a pointer to delegation, and the re-issued edit passes.
 
+## Why delegate instead of editing directly
+
+A session started in a repository loads that repository's own `.claude`
+instructions, rules, skills, and hooks. Work delegated there follows the local
+conventions, while an edit made from another repository never sees them. jam
+makes delegation the default path for cross-repo work.
+
 ## Design
 
 jam is split into a harness-neutral core and two kinds of adapters, so new
