@@ -15,6 +15,8 @@ repos instead of switching contexts by hand.
 - **List** live sessions with their IDs, working directories, and state.
 - **Send** a prompt to a session and **receive** its result back, using Claude Code's
   native `SendMessage`.
+- Treat every session as a **peer**: a spawned session still takes instructions
+  from the owner as usual and may message the sessions that started it.
 - **Guard** against editing another repository directly: the first such edit in a
   session is denied once with a pointer to delegation, and the re-issued edit passes.
 

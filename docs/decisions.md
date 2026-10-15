@@ -31,7 +31,8 @@ orchestrating session and a `claude --bg` worker:
 - worker to an idle parent: the message wakes the parent.
 
 Delivery goes through a per-session Unix socket that the harness manages. Peers
-hold a message for approval when their permission modes differ.
+hold a message for approval when their permission modes differ. The roles above
+(parent, worker) only describe who started whom in the experiment; see D10.
 
 **Caveat.** In the experiment the receiving parent was itself a
 `kind: background` session. Not verified: a foreground terminal session (a
@@ -119,6 +120,20 @@ self-grant that the user did not make, and the cost it would save is one prompt.
 ## D9. License
 
 MIT, chosen by the owner on 2026-10-15. The text is in `LICENSE`.
+
+## D10. Sessions are peers
+
+Decided on 2026-10-15. Once a session is started, the session that spawned it
+and the spawned session are equals. The owner keeps instructing the spawned
+session directly, as with any session, and a spawned session may message any of
+its ancestors on its own initiative, not only reply to its spawner.
+
+Consequences: jam models a flat set of peers, not a tree. The registry lists
+sessions without a hierarchy (the spawner's id may be kept as provenance only),
+and `whoami` lets any session learn its own id. A message from a peer is input
+to weigh, never an instruction that carries the sender's authority. Loop
+protection (D6) cannot rely on a spawn-chain depth alone, because a peer can be
+addressed by a session that did not spawn it; it is designed with the guard.
 
 ## Plugin platform facts
 
