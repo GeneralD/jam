@@ -1,0 +1,273 @@
+"""Tests for the Claude Code harness adapter. A fake runner stands in for the
+`claude` binary, so no real session is ever started. The fixtures mirror the
+output shapes observed from Claude Code 2.1.300, with generic ids and paths."""
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import support  # noqa: F401  (puts src/ on sys.path)
+from jam.errors import (
+    HarnessError,
+    InvalidRequest,
+    StillListed,
+    UnparseableOutput,
+    WorkspaceNotTrusted,
+)
+from jam.harness.claude import ClaudeHarness, RunResult, run_subprocess
+
+LIVE = {
+    "pid": 4242,
+    "id": "aaaa1111",
+    "cwd": "/work/repo-a",
+    "kind": "background",
+    "startedAt": 1700000000000,
+    "sessionId": "aaaa1111-0000-4000-8000-000000000001",
+    "name": "worker-a",
+    "status": "busy",
+    "state": "working",
+}
+# A stopped session keeps its row in `agents --json --all` but loses pid/status.
+STOPPED = {
+    "id": "bbbb2222",
+    "cwd": "/work/repo-b",
+    "kind": "background",
+    "startedAt": 1700000001000,
+    "sessionId": "bbbb2222-0000-4000-8000-000000000002",
+    "name": "worker-b",
+    "state": "stopped",
+}
+SPAWN_STDOUT = (
+    "backgrounded · \x1b[36mcccc3333\x1b[39m · worker-c\n"
+    "\x1b[2m  claude agents             list sessions\x1b[22m\n"
+    "\x1b[2m  claude stop cccc3333      stop this session\x1b[22m\n"
+)
+UNTRUSTED = (
+    "Workspace not trusted. Run `claude` in /private/tmp/untrusted-dir once and "
+    "accept the trust prompt, then retry."
+)
+
+
+class FakeRunner:
+    """Records every call and answers from a script of RunResults (in order)."""
+
+    def __init__(self, *results):
+        self.results = list(results)
+        self.calls = []
+
+    def __call__(self, args, cwd):
+        self.calls.append((list(args), cwd))
+        return self.results.pop(0)
+
+
+def ok(stdout="", stderr=""):
+    return RunResult(0, stdout, stderr)
+
+
+def agents(*rows):
+    return ok(json.dumps(list(rows)))
+
+
+class SpawnTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name).resolve()
+
+    def harness(self, *results):
+        runner = FakeRunner(*results)
+        return ClaudeHarness(claude_bin="claude", runner=runner), runner
+
+    def test_builds_argv_with_prompt_after_double_dash(self):
+        harness, runner = self.harness(ok(SPAWN_STDOUT))
+        harness.spawn(self.dir, "do the thing", name="worker-c", permission_mode="default")
+        args, cwd = runner.calls[0]
+        self.assertEqual(
+            args,
+            ["claude", "--bg", "-n", "worker-c", "--permission-mode", "default", "--", "do the thing"],
+        )
+        self.assertEqual(cwd, str(self.dir))
+
+    def test_omits_optional_flags_and_keeps_a_leading_dash_prompt_safe(self):
+        harness, runner = self.harness(ok(SPAWN_STDOUT))
+        harness.spawn(self.dir, "-looks like a flag")
+        self.assertEqual(runner.calls[0][0], ["claude", "--bg", "--", "-looks like a flag"])
+
+    def test_parses_id_and_name_from_decorated_output(self):
+        harness, _ = self.harness(ok(SPAWN_STDOUT))
+        spawned = harness.spawn(self.dir, "x", name="worker-c")
+        self.assertEqual((spawned.id, spawned.name), ("cccc3333", "worker-c"))
+
+    def test_parses_output_without_a_name(self):
+        harness, _ = self.harness(ok("backgrounded · dddd4444\n  claude agents   list sessions\n"))
+        spawned = harness.spawn(self.dir, "x")
+        self.assertEqual((spawned.id, spawned.name), ("dddd4444", None))
+
+    def test_unparseable_output_with_exit_zero_carries_the_raw_text(self):
+        harness, _ = self.harness(ok("something unexpected\n"))
+        with self.assertRaises(UnparseableOutput) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertIn("something unexpected", caught.exception.raw)
+
+    def test_untrusted_workspace_reports_the_path_from_the_message(self):
+        harness, _ = self.harness(RunResult(1, "", UNTRUSTED))
+        with self.assertRaises(WorkspaceNotTrusted) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertEqual(caught.exception.path, "/private/tmp/untrusted-dir")
+
+    def test_untrusted_match_is_loose_and_falls_back_to_the_requested_dir(self):
+        harness, _ = self.harness(RunResult(1, "", "ERROR: this workspace is NOT TRUSTED yet"))
+        with self.assertRaises(WorkspaceNotTrusted) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertEqual(caught.exception.path, str(self.dir))
+
+    def test_other_failures_surface_stderr_without_retry(self):
+        harness, runner = self.harness(RunResult(2, "", "boom"))
+        with self.assertRaises(HarnessError) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertNotIsInstance(caught.exception, WorkspaceNotTrusted)
+        self.assertIn("boom", str(caught.exception))
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_invalid_requests_never_reach_the_runner(self):
+        harness, runner = self.harness()
+        cases = [
+            dict(cwd=self.dir / "missing", prompt="x"),
+            dict(cwd=self.dir, prompt=""),
+            dict(cwd=self.dir, prompt="   "),
+            dict(cwd=self.dir, prompt="a\x00b"),
+            dict(cwd=self.dir, prompt="x", name="-flag"),
+            dict(cwd=self.dir, prompt="x", name="has space"),
+            dict(cwd=self.dir, prompt="x", name="n" * 65),
+            dict(cwd=self.dir, prompt="x", permission_mode="--bad"),
+        ]
+        for kwargs in cases:
+            with self.subTest(kwargs=sorted(kwargs)):
+                with self.assertRaises(InvalidRequest):
+                    harness.spawn(**kwargs)
+        self.assertEqual(runner.calls, [])
+
+    def test_runner_errors_such_as_timeouts_propagate(self):
+        def runner(args, cwd):
+            raise HarnessError("timed out")
+
+        with self.assertRaises(HarnessError):
+            ClaudeHarness(runner=runner).spawn(self.dir, "x")
+
+
+class ListTest(unittest.TestCase):
+    def harness(self, *results):
+        runner = FakeRunner(*results)
+        return ClaudeHarness(claude_bin="claude", runner=runner), runner
+
+    def test_lists_live_sessions(self):
+        harness, runner = self.harness(agents(LIVE))
+        (session,) = harness.list()
+        self.assertEqual(runner.calls[0][0], ["claude", "agents", "--json"])
+        self.assertEqual(
+            (session.id, session.session_id, session.name, session.cwd, session.kind),
+            ("aaaa1111", LIVE["sessionId"], "worker-a", "/work/repo-a", "background"),
+        )
+        self.assertEqual((session.status, session.state, session.pid), ("busy", "working", 4242))
+
+    def test_stopped_sessions_lack_status_and_pid(self):
+        harness, _ = self.harness(agents(STOPPED))
+        (session,) = harness.list(include_exited=True)
+        self.assertEqual((session.status, session.pid, session.state), (None, None, "stopped"))
+
+    def test_include_exited_and_cwd_become_flags(self):
+        harness, runner = self.harness(agents())
+        harness.list(include_exited=True, cwd="/work/repo-a")
+        self.assertEqual(runner.calls[0][0], ["claude", "agents", "--json", "--all", "--cwd", "/work/repo-a"])
+
+    def test_tolerates_drift_in_keys_and_values(self):
+        drifted = dict(LIVE, id="eeee5555", kind="something-new", state="a-state-we-never-saw", extra=[1, 2])
+        harness, _ = self.harness(agents(drifted, {"no": "id"}, "not-an-object"))
+        sessions = harness.list()
+        self.assertEqual([s.id for s in sessions], ["eeee5555"])
+        self.assertEqual((sessions[0].kind, sessions[0].state), ("something-new", "a-state-we-never-saw"))
+
+    def test_unusable_output_is_a_harness_error(self):
+        for result in (ok("not json"), ok('{"a": 1}'), RunResult(1, "", "denied")):
+            with self.subTest(stdout=result.stdout[:10]):
+                harness, _ = self.harness(result)
+                with self.assertRaises(HarnessError):
+                    harness.list()
+
+
+class StopAndRemoveTest(unittest.TestCase):
+    def harness(self, *results):
+        runner = FakeRunner(*results)
+        return ClaudeHarness(claude_bin="claude", runner=runner), runner
+
+    def test_stop_returns_the_observed_stopped_row(self):
+        harness, runner = self.harness(ok("stopped bbbb2222"), agents(STOPPED))
+        observed = harness.stop("bbbb2222")
+        self.assertEqual(runner.calls[0][0], ["claude", "stop", "bbbb2222"])
+        self.assertEqual(runner.calls[1][0], ["claude", "agents", "--json", "--all"])
+        self.assertEqual((observed.id, observed.state), ("bbbb2222", "stopped"))
+
+    def test_stop_returns_none_when_the_session_is_no_longer_listed(self):
+        harness, _ = self.harness(ok("stopped bbbb2222"), agents(LIVE))
+        self.assertIsNone(harness.stop("bbbb2222"))
+
+    def test_stop_failure_is_a_harness_error(self):
+        harness, _ = self.harness(RunResult(1, "", "no such session"))
+        with self.assertRaises(HarnessError):
+            harness.stop("bbbb2222")
+
+    def test_remove_verifies_absence_against_the_full_listing(self):
+        harness, runner = self.harness(ok("removed bbbb2222"), agents(LIVE))
+        harness.remove("bbbb2222")
+        self.assertEqual(runner.calls[0][0], ["claude", "rm", "bbbb2222"])
+        self.assertEqual(runner.calls[1][0], ["claude", "agents", "--json", "--all"])
+
+    def test_remove_reports_a_session_that_is_still_listed(self):
+        harness, _ = self.harness(ok("removed bbbb2222"), agents(STOPPED))
+        with self.assertRaises(StillListed):
+            harness.remove("bbbb2222")
+
+    def test_session_ids_are_validated_before_anything_runs(self):
+        harness, runner = self.harness()
+        for bad in ("", "-x", "a b", "a;b", "x" * 65):
+            with self.subTest(bad=bad):
+                with self.assertRaises(InvalidRequest):
+                    harness.stop(bad)
+                with self.assertRaises(InvalidRequest):
+                    harness.remove(bad)
+        self.assertEqual(runner.calls, [])
+
+
+class SubprocessRunnerTest(unittest.TestCase):
+    """The default runner, exercised with the Python interpreter as a stand-in
+    for `claude`."""
+
+    def test_captures_exit_code_stdout_and_stderr(self):
+        code = "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"
+        result = run_subprocess([sys.executable, "-c", code], None)
+        self.assertEqual((result.returncode, result.stdout.strip(), result.stderr.strip()), (3, "out", "err"))
+
+    def test_stdin_is_closed_so_a_waiting_child_cannot_hang(self):
+        result = run_subprocess([sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], None)
+        self.assertEqual(result.stdout.strip(), "''")
+
+    def test_timeout_becomes_a_harness_error_without_leaking_arguments(self):
+        secret = "do-not-leak-this-prompt"
+        with self.assertRaises(HarnessError) as caught:
+            run_subprocess([sys.executable, "-c", "import time; time.sleep(5)", secret], None, timeout=0.3)
+        self.assertNotIn(secret, str(caught.exception))
+
+    def test_missing_binary_becomes_a_harness_error(self):
+        with self.assertRaises(HarnessError):
+            run_subprocess(["jam-test-no-such-binary"], None)
+
+    def test_runs_in_the_requested_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_subprocess([sys.executable, "-c", "import os; print(os.getcwd())"], tmp)
+            self.assertEqual(Path(result.stdout.strip()).resolve(), Path(tmp).resolve())
+
+
+if __name__ == "__main__":
+    unittest.main()
