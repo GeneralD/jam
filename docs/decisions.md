@@ -120,5 +120,4 @@ page before relying on a single claim.
 
 ## Not done yet
 
-- Hero image (the image backend was unavailable when the repo was created).
 - License is not chosen.

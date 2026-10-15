@@ -1,5 +1,7 @@
 # jam
 
+![hero](assets/hero.png)
+
 ![status](https://img.shields.io/badge/status-design-blue) ![plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757) ![terminal](https://img.shields.io/badge/terminal-zellij-blue) ![visibility](https://img.shields.io/badge/repo-private-grey)
 
 **jam** — **J**unction for **A**I **M**essaging.
