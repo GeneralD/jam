@@ -17,20 +17,43 @@ each background session's pseudo-terminal and uses Unix sockets internally.
 Rejected: a custom socket daemon. It would duplicate the native one and depend
 on its own protocol staying in sync.
 
-## D2. Whoever owns the terminal can inject input
+## D2. Messaging uses the native `SendMessage`
 
-Delivering a prompt to a live session means writing to its pseudo-terminal, and
-reading a result means reading its screen. Screen text is messy, so results
-travel through a file mailbox instead.
+Revised on 2026-10-15; the original design is kept below as the fallback.
+
+Decided: sessions talk to each other through Claude Code's own `SendMessage`
+instead of a jam-owned transport. Verified by experiment between this
+orchestrating session and a `claude --bg` worker:
+
+- parent to an idle worker: the message wakes the worker;
+- worker to a running parent: the message arrives mid-turn as a
+  `<cross-session-message>`;
+- worker to an idle parent: the message wakes the parent.
+
+Delivery goes through a per-session Unix socket that the harness manages. Peers
+hold a message for approval when their permission modes differ.
+
+**Caveat.** In the experiment the receiving parent was itself a
+`kind: background` session. Not verified: a foreground terminal session (a
+plain terminal or a zellij pane) being woken by a worker's message. The owner
+decided that this does not matter: jam only needs participating sessions to be
+registered with Claude Code's background session stack (see D4).
+
+Original design, now the fallback: delivering a prompt to a live session means
+writing to its pseudo-terminal, and reading a result means reading its screen.
+Screen text is messy, so results would travel through a file mailbox instead.
 
 | Terminal owner | Write | Read |
 |---|---|---|
 | Claude Code daemon (background sessions) | attach / daemon pty socket | `claude logs` |
 | zellij (interactive sessions) | `zellij action write-chars --pane-id` | `zellij action dump-screen --pane-id` |
 
-There is no native CLI to send a prompt to a running interactive session.
+## D3. Hook delivery by session state is deferred
 
-## D3. Delivery depends on session state
+Superseded by D2: the native messaging already covers a busy, a mid-turn, and
+an idle receiver among sessions registered with the background stack, so jam
+does not build a mailbox or the hook delivery below in v1. This table would
+return only if native messaging proves insufficient for a registered session.
 
 | Session state | Delivery |
 |---|---|
@@ -38,22 +61,34 @@ There is no native CLI to send a prompt to a running interactive session.
 | About to stop | Stop hook reads the mailbox and continues with `decision: block` |
 | Idle | Hooks do not run; wake it by writing to its zellij pane (**unverified**: whether a trailing carriage return submits the prompt) |
 
-## D4. Scope: Claude Code x zellij, behind adapter seams
+## D4. Scope: Claude Code first, behind adapter seams
 
-Core (registry, mailbox, verbs `list`, `spawn`, `send`, `result`, `stop`,
-`whoami`) is stdlib-only and knows nothing about a harness or a terminal. A
-harness adapter and an environment adapter each declare capabilities
+Decided on 2026-10-15 (native-first).
+
+Core is a session registry plus the verbs `spawn`, `list`, `stop`, and `whoami`
+(the exact set is settled in the skeleton PR). It is stdlib-only and knows
+nothing about a harness or a terminal. `send` and `result` are not jam verbs in
+v1: the skill teaches the AI to use the native `SendMessage` with the ids jam
+reports. A harness adapter and an environment seam each declare capabilities
 (`spawn_bg`, `inject`, `read_screen`, `wake_idle`) and the core degrades
-gracefully. Only the Claude Code and zellij adapters exist in v1. Codex and
-others are out of scope for now.
+gracefully.
+
+v1 ships only the Claude Code harness adapter and no environment adapter. jam
+does not depend on a terminal multiplexer: it works for sessions that are
+registered with Claude Code's background session stack (visible in
+`claude agents`). A session that is not registered there is out of scope for
+v1, and the README states that requirement.
+The environment seam stays so that a zellij adapter can be added later without
+touching the core, but it is not planned. Codex and other harnesses are out of
+scope.
 
 ## D5. Plugin, installed with nothing else
 
 The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
 (`additionalContext`), so no PATH change is needed. The MCP server and the CLI
-are thin entry points over the same core. The registry and mailbox live in the
-plugin data directory and are disposable (see "Plugin platform facts").
+are thin entry points over the same core. The registry lives in the plugin data
+directory and is disposable (see "Plugin platform facts").
 
 ## D6. Automatic delegation guard
 
@@ -73,6 +108,17 @@ A delegation depth cap is required to prevent delegation loops.
 
 `jam`, expanded as "Junction for AI Messaging". The name mentions neither a
 harness nor a terminal so adapters can be added later.
+
+## D8. MCP tools are approved by the user on first use
+
+Decided on 2026-10-15: jam does not ship a `PermissionRequest` hook that
+approves its own MCP tools. The owner approves them once on first use.
+Rejected: the auto-allow hook. A plugin granting itself permission is a
+self-grant that the user did not make, and the cost it would save is one prompt.
+
+## D9. License
+
+MIT, chosen by the owner on 2026-10-15. The text is in `LICENSE`.
 
 ## Plugin platform facts
 
@@ -98,12 +144,11 @@ checked against the release notes for
   to hook processes and MCP stdio servers, but not to commands the model runs
   through the Bash tool. This is why a SessionStart hook has to inject the
   resolved path (D5). `CLAUDE_PLUGIN_DATA` survives plugin updates, so the
-  registry and mailbox live there instead of a temp directory. Uninstalling the
-  plugin from its last scope deletes that directory unless `--keep-data` is
-  passed. jam treats this state as disposable: the registry only describes live
-  sessions and is rebuilt on the next session start, and a message that was not
-  yet delivered when the plugin was removed is dropped. Nothing that must outlive
-  an uninstall is stored there.
+  registry lives there instead of a temp directory. Uninstalling the plugin from
+  its last scope deletes that directory unless `--keep-data` is passed. jam
+  treats this state as disposable: the registry only describes live sessions and
+  is rebuilt on the next session start. Nothing that must outlive an uninstall
+  is stored there.
 - **Hooks.** Plugin hooks behave like settings hooks. `additionalContext` must
   be nested in `hookSpecificOutput`; at the top level it is silently ignored.
   A Stop hook can block with `decision: block` but only a limited number of
@@ -140,13 +185,13 @@ checked against the release notes for
 
 ## Open verification items
 
-- zellij `write-chars`: does a trailing carriage return submit the prompt, and
-  what happens when written during generation?
-- Can a background worker reply to its parent through `SendMessage`?
-- Permission prompts for the plugin's MCP tools: `PermissionRequest` hook or
-  first-run user approval?
+- Does an environment variable set on the spawning shell (a delegation depth
+  counter, for example) reach a `--bg` worker? Workers are started by the
+  supervisor and may not inherit it.
+- Peers hold a message for approval when permission modes differ. Which
+  permission mode should `spawn` give a worker so that messages flow without
+  a prompt?
+- `claude stop` followed by `claude rm` once printed success while the session
+  stayed in `claude agents` as idle; a second stop and rm removed it. Cleanup
+  must re-list to confirm.
 - The exact marketplace name to use in `/plugin install`.
-
-## Not done yet
-
-- License is not chosen.
