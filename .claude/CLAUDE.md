@@ -24,6 +24,9 @@ sessions registered with its background session stack, and uses the native
   Claude Code CLI, so it is a local step and not part of CI.
 - Develop with `claude --plugin-dir .` so the working tree is what loads. Do not
   install the plugin into your own settings while developing.
+- Code lives in `src/jam/` and is stdlib only. Keep it working on Python 3.9, the
+  system `python3` of macOS: no `match`, and no `X | Y` outside annotations
+  (`from __future__ import annotations` is in every module).
 - `version` lives in `.claude-plugin/plugin.json` only; the marketplace entry
   leaves it out so the two cannot drift.
 

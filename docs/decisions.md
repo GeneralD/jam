@@ -111,7 +111,14 @@ never sees them. Orchestrating work across repositories this way is the main
 benefit of jam, and the guard exists to make it the default path.
 
 Limits: shell writes (`sed -i`, `git -C`, redirects) are not detected in v1.
-A delegation depth cap is required to prevent delegation loops.
+
+Loop protection is required, and the mechanism is still to be designed. An
+environment variable set by the spawner does not reach the worker (see Platform
+facts), so a depth counter cannot travel that way, and D10 rules out relying on
+spawn-chain depth alone. Candidates, undecided: a record the spawner writes
+keyed by the worker's `sessionId` and read by the worker's hook (it races: the
+worker's hook can fire before the spawner has recorded anything), or a marker
+carried in the spawn prompt itself.
 
 ## D7. Name
 
@@ -204,7 +211,33 @@ checked against the release notes for
   start in a directory whose workspace trust was never accepted, printing
   "Workspace not trusted. Run `claude` in <dir> once and accept the trust
   prompt, then retry." `spawn` must detect this, stop, and tell the owner
-  which directory to trust, instead of retrying or silently failing.
+  which directory to trust, instead of retrying or silently failing. Observed:
+  the command exits with status 1, writes the message to stderr, names the
+  resolved path, and starts no session. A fresh temporary directory outside
+  the owner's config was refused, while a new subdirectory under a directory
+  that holds a trusted project was accepted, so trust may be inherited from an
+  ancestor (unverified). jam therefore does not pre-check trust: it runs the
+  command and reacts to the error.
+- **Environment variables do not reach `--bg` workers (verified by
+  experiment).** A variable set on the shell that runs `claude --bg` was absent
+  in the worker: asked to run `printenv` on it through its Bash tool, the
+  worker answered that it was unset. Workers are started by the supervisor
+  from a pre-warmed pool, not from the spawning shell. Anything a worker must
+  know has to travel in the prompt or in a file.
+- **Background session commands (observed on 2.1.300).** `claude --bg [-n
+  name] [--permission-mode mode] -- <prompt>` prints `backgrounded · <id> ·
+  <name>` (with terminal colors) and exits 0; the `--` makes a prompt that
+  starts with a dash safe. The id is the first 8 characters of `sessionId`.
+  `claude agents --json` rows have `id`, `sessionId`, `name`, `cwd`, `kind`,
+  `startedAt`, `state`, and, while the session runs, `pid` and `status`
+  (`busy` or `idle`). `claude stop` removes a session from that plain listing
+  at once; with `--all` the row stays, without `pid` or `status`, until
+  `claude rm`, after which it is gone from both. The `state` seen right after
+  a stop was `stopped` in two runs and `done` in a third, so it is treated as
+  a pass-through string. The help text says the plain listing also includes
+  interactive sessions, but only background ones have been seen. A session's
+  transcript is a JSONL file in the project directory named after its
+  `sessionId`; `claude logs` shows only a terminal redraw.
 - **Install from the public repository (verified by experiment).** With the
   manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered
   a marketplace named `jam` and `claude plugin install jam@jam` installed the
@@ -218,12 +251,12 @@ checked against the release notes for
 
 ## Open verification items
 
-- Does an environment variable set on the spawning shell (a delegation depth
-  counter, for example) reach a `--bg` worker? Workers are started by the
-  supervisor and may not inherit it.
 - Peers hold a message for approval when permission modes differ. Which
   permission mode should `spawn` give a worker so that messages flow without
   a prompt?
 - `claude stop` followed by `claude rm` once printed success while the session
-  stayed in `claude agents` as idle; a second stop and rm removed it. Cleanup
-  must re-list to confirm.
+  stayed in `claude agents` as idle; a second stop and rm removed it. It did
+  not reproduce in five later runs, and the adapter does not retry: `remove`
+  checks the full listing and reports a session that is still there.
+- Interactive (foreground) sessions: do they appear in `claude agents --json`,
+  and can a worker's message wake one?
