@@ -105,15 +105,25 @@ page before relying on a single claim.
   Code 2.1.275 or newer; the shell form `claude plugin install` needs 2.1.292
   or newer. Auto-update is off by default for third-party marketplaces. There
   is no install-time hook, so initialization happens lazily on first use.
-- **Background sessions.** Whether plugin hooks and MCP servers are active in
-  `--bg` sessions is not documented. It must be tested.
+- **Background sessions (verified by experiment).** The documentation is
+  silent, so a throwaway probe plugin was loaded with `--plugin-dir` into both a
+  print-mode run (control) and a `claude --bg` session. In both, the plugin's
+  stdio MCP server started, and the SessionStart, PostToolUse, and Stop hooks
+  fired with `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` exported. So a
+  background worker runs jam's hooks and MCP server like any other session.
+  Not tested: a plugin installed from a marketplace (the load path is expected
+  to be the same).
+- **Background sessions need a trusted workspace.** `claude --bg` refuses to
+  start in a directory whose workspace trust was never accepted, printing
+  "Workspace not trusted. Run `claude` in <dir> once and accept the trust
+  prompt, then retry." `spawn` must detect this, stop, and tell the owner
+  which directory to trust, instead of retrying or silently failing.
 
 ## Open verification items
 
 - zellij `write-chars`: does a trailing carriage return submit the prompt, and
   what happens when written during generation?
 - Can a background worker reply to its parent through `SendMessage`?
-- Do plugin hooks and plugin MCP servers run inside `--bg` sessions?
 - Permission prompts for the plugin's MCP tools: `PermissionRequest` hook or
   first-run user approval?
 - The exact marketplace name to use in `/plugin install`.
