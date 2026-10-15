@@ -1,0 +1,14 @@
+{
+  "name": "jam",
+  "owner": {
+    "name": "GeneralD"
+  },
+  "description": "jam — Junction for AI Messaging. Claude Code plugin marketplace.",
+  "plugins": [
+    {
+      "name": "jam",
+      "source": "./",
+      "description": "Let Claude Code sessions in different repositories spawn each other, find each other, and pass prompts and results."
+    }
+  ]
+}
