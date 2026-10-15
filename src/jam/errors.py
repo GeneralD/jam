@@ -32,6 +32,14 @@ class UnparseableOutput(HarnessError):
         self.raw = raw
 
 
+class RegistryError(Exception):
+    """The session registry could not be read or written, or its lock timed out.
+
+    Not a HarnessError on purpose: a registry failure must never be mistaken for a
+    harness failure, because the registry is only an annotation layer.
+    """
+
+
 class StillListed(HarnessError):
     """A session that was removed still shows up in the harness listing."""
 

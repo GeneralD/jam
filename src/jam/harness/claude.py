@@ -23,7 +23,7 @@ from ..errors import (
     UnparseableOutput,
     WorkspaceNotTrusted,
 )
-from ..session import Session
+from ..session import Session, Spawned, is_id
 
 DEFAULT_TIMEOUT: Final = 60.0
 
@@ -33,7 +33,6 @@ _NOT_TRUSTED: Final = re.compile(r"not\s+trusted", re.IGNORECASE)
 _TRUST_PATH: Final = re.compile(r"\bin\s+(.+?)\s+once\b")
 # Names and ids become argv entries, so a leading "-" would be read as a flag.
 _NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-_ID: Final = _NAME
 _MODE: Final = re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
 
 
@@ -51,12 +50,6 @@ class RunResult:
 
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.
 Runner = Callable[[list[str], Optional[str]], RunResult]
-
-
-@dataclass(frozen=True)
-class Spawned:
-    id: str
-    name: str | None
 
 
 def run_subprocess(args: Sequence[str], cwd: str | None, timeout: float = DEFAULT_TIMEOUT) -> RunResult:
@@ -172,7 +165,7 @@ class ClaudeHarness:
 
     @staticmethod
     def _valid_id(session_id: str) -> str:
-        if not _matches(_ID, session_id):
+        if not is_id(session_id):
             raise InvalidRequest(f"invalid session id: {session_id!r}")
         return session_id
 
