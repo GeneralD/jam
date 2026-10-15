@@ -254,10 +254,10 @@ class SubprocessRunnerTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "''")
 
     def test_timeout_becomes_a_harness_error_without_leaking_arguments(self):
-        secret = "do-not-leak-this-prompt"
+        sentinel = "do-not-leak-this-prompt"
         with self.assertRaises(HarnessError) as caught:
-            run_subprocess([sys.executable, "-c", "import time; time.sleep(5)", secret], None, timeout=0.3)
-        self.assertNotIn(secret, str(caught.exception))
+            run_subprocess([sys.executable, "-c", "import time; time.sleep(5)", sentinel], None, timeout=0.3)
+        self.assertNotIn(sentinel, str(caught.exception))
 
     def test_missing_binary_becomes_a_harness_error(self):
         with self.assertRaises(HarnessError):
