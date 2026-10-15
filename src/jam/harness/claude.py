@@ -8,6 +8,7 @@ through an injectable runner so tests never start a real session.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from collections.abc import Callable, Sequence
@@ -34,6 +35,11 @@ _TRUST_PATH: Final = re.compile(r"\bin\s+(.+?)\s+once\b")
 _NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _ID: Final = _NAME
 _MODE: Final = re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
+
+
+def _matches(pattern: re.Pattern[str], value: object) -> bool:
+    """True only for a string that matches in full; any other type simply does not match."""
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
 @dataclass(frozen=True)
@@ -89,16 +95,16 @@ class ClaudeHarness:
         permission_mode: str | None = None,
     ) -> Spawned:
         """Start a background session in `cwd` with `prompt` as its first message."""
+        if not isinstance(cwd, (str, os.PathLike)) or not Path(cwd).is_dir():
+            raise InvalidRequest(f"not a directory: {cwd!r}")
         directory = Path(cwd)
-        if not directory.is_dir():
-            raise InvalidRequest(f"not a directory: {cwd}")
         if not isinstance(prompt, str) or not prompt.strip():
             raise InvalidRequest("prompt must not be empty")
         if "\x00" in prompt:
             raise InvalidRequest("prompt must not contain a NUL character")
-        if name is not None and not _NAME.fullmatch(name):
+        if name is not None and not _matches(_NAME, name):
             raise InvalidRequest(f"invalid session name: {name!r}")
-        if permission_mode is not None and not _MODE.fullmatch(permission_mode):
+        if permission_mode is not None and not _matches(_MODE, permission_mode):
             raise InvalidRequest(f"invalid permission mode: {permission_mode!r}")
 
         args = [
@@ -117,6 +123,8 @@ class ClaudeHarness:
 
     def list(self, include_exited: bool = False, cwd: str | None = None) -> list[Session]:
         """List sessions. Rows without a usable id are skipped; unknown keys are ignored."""
+        if cwd is not None and (not isinstance(cwd, str) or "\x00" in cwd):
+            raise InvalidRequest(f"invalid cwd filter: {cwd!r}")
         args = [
             self._bin,
             "agents",
@@ -164,14 +172,15 @@ class ClaudeHarness:
 
     @staticmethod
     def _valid_id(session_id: str) -> str:
-        if not isinstance(session_id, str) or not _ID.fullmatch(session_id):
+        if not _matches(_ID, session_id):
             raise InvalidRequest(f"invalid session id: {session_id!r}")
         return session_id
 
     @staticmethod
     def _raise_for_spawn_failure(result: RunResult, requested_dir: str) -> None:
-        if _NOT_TRUSTED.search(result.stderr) or _NOT_TRUSTED.search(result.stdout):
-            found = _TRUST_PATH.search(_ANSI.sub("", result.stderr))
+        message = next((text for text in (result.stderr, result.stdout) if _NOT_TRUSTED.search(text)), None)
+        if message is not None:
+            found = _TRUST_PATH.search(_ANSI.sub("", message))
             raise WorkspaceNotTrusted(found.group(1) if found else requested_dir)
         raise HarnessError(f"starting a session failed (exit {result.returncode}): {result.stderr.strip()}")
 

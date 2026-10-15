@@ -123,6 +123,19 @@ class SpawnTest(unittest.TestCase):
             harness.spawn(self.dir, "x")
         self.assertEqual(caught.exception.path, str(self.dir))
 
+    def test_untrusted_path_is_read_from_stdout_when_the_message_is_there(self):
+        harness, _ = self.harness(RunResult(1, UNTRUSTED.replace("untrusted-dir", "from-stdout"), ""))
+        with self.assertRaises(WorkspaceNotTrusted) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertEqual(caught.exception.path, "/private/tmp/from-stdout")
+
+    def test_stderr_wins_when_both_streams_mention_the_failure(self):
+        noisy_stderr = "warning: something happened in a place once"
+        harness, _ = self.harness(RunResult(1, UNTRUSTED, noisy_stderr + "\n" + "not trusted"))
+        with self.assertRaises(WorkspaceNotTrusted) as caught:
+            harness.spawn(self.dir, "x")
+        self.assertEqual(caught.exception.path, "a place")
+
     def test_other_failures_surface_stderr_without_retry(self):
         harness, runner = self.harness(RunResult(2, "", "boom"))
         with self.assertRaises(HarnessError) as caught:
@@ -142,6 +155,12 @@ class SpawnTest(unittest.TestCase):
             dict(cwd=self.dir, prompt="x", name="has space"),
             dict(cwd=self.dir, prompt="x", name="n" * 65),
             dict(cwd=self.dir, prompt="x", permission_mode="--bad"),
+            # Wrong types must be the same error, not a TypeError from the regex or Path.
+            dict(cwd=self.dir, prompt="x", name=123),
+            dict(cwd=self.dir, prompt="x", permission_mode=123),
+            dict(cwd=123, prompt="x"),
+            dict(cwd=None, prompt="x"),
+            dict(cwd=self.dir, prompt=None),
         ]
         for kwargs in cases:
             with self.subTest(kwargs=sorted(kwargs)):
@@ -176,6 +195,14 @@ class ListTest(unittest.TestCase):
         harness, _ = self.harness(agents(STOPPED))
         (session,) = harness.list(include_exited=True)
         self.assertEqual((session.status, session.pid, session.state), (None, None, "stopped"))
+
+    def test_a_non_string_cwd_filter_is_an_invalid_request(self):
+        harness, runner = self.harness()
+        for bad in (123, ["/work"], "a\x00b"):
+            with self.subTest(bad=repr(bad)):
+                with self.assertRaises(InvalidRequest):
+                    harness.list(cwd=bad)
+        self.assertEqual(runner.calls, [])
 
     def test_include_exited_and_cwd_become_flags(self):
         harness, runner = self.harness(agents())
