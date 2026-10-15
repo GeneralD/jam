@@ -18,8 +18,14 @@ sessions registered with its background session stack, and uses the native
   Conversation with the owner may be in their own language.
 - Conventional commits. Open PRs as regular (non-draft) PRs, self-assigned,
   and link the issue they close.
-- No build or test commands exist yet. The first implementation PR defines
-  them and updates this section.
+- Test: `python3 -m unittest discover -s tests -v`. Stdlib only; write the test
+  first and watch it fail. CI runs the same command.
+- Validate the manifests: `claude plugin validate --strict .`. It needs the
+  Claude Code CLI, so it is a local step and not part of CI.
+- Develop with `claude --plugin-dir .` so the working tree is what loads. Do not
+  install the plugin into your own settings while developing.
+- `version` lives in `.claude-plugin/plugin.json` only; the marketplace entry
+  leaves it out so the two cannot drift.
 
 ## Hard rules
 

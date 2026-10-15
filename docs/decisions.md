@@ -217,4 +217,7 @@ checked against the release notes for
 - `claude stop` followed by `claude rm` once printed success while the session
   stayed in `claude agents` as idle; a second stop and rm removed it. Cleanup
   must re-list to confirm.
-- The exact marketplace name to use in `/plugin install`.
+- Install from the public repository: the marketplace is named `jam`, so the
+  install form is `jam@jam`. The manifests validate and load with
+  `--plugin-dir`, but a real `marketplace add` and `install` can only be checked
+  after the manifests are on `main`.
