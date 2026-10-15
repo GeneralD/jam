@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,6 +21,7 @@ from jam.errors import InvalidRequest, RegistryError
 from jam.registry import MAX_BYTES, Record, Registry, decoded, encoded, expired, spawned_marked
 
 KEY = "aaaa1111"
+LEAK = "/leak/marker"  # a path no message or traceback may repeat
 CHILD = """
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -87,10 +89,16 @@ class ConstructionTest(RegistryTestCase):
                     Registry(bad)
 
     def test_a_bad_lock_timeout_is_rejected(self):
-        for bad in (-1, "1", None):
-            with self.subTest(bad=repr(bad)):
+        # nan and inf would make the polling deadline unreachable; 10**400 cannot become a float.
+        for bad in (-1, "1", None, True, float("nan"), float("inf"), float("-inf"), 10**400):
+            with self.subTest(bad=repr(bad)[:20]):
                 with self.assertRaises(InvalidRequest):
                     Registry(self.data, lock_timeout=bad)
+
+    def test_a_zero_or_fractional_lock_timeout_is_accepted(self):
+        for good in (0, 0.25, 3):
+            with self.subTest(good=good):
+                Registry(self.data, lock_timeout=good)
 
     def test_construction_and_reads_create_nothing(self):
         registry = Registry(self.data)
@@ -168,6 +176,7 @@ class WritingTest(RegistryTestCase):
             self.registry.update(KEY, spawned_marked)
         finally:
             os.umask(previous)
+        self.assertEqual(stat.S_IMODE(self.data.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(self.sessions_dir.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(self.path_of().stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE((self.data / "sessions-v1.lock").stat().st_mode), 0o600)
@@ -195,6 +204,15 @@ class WritingTest(RegistryTestCase):
             self.registry.update(KEY, lambda raw: {"bad": object()})
         self.assertEqual([p.name for p in self.sessions_dir.iterdir()], [f"{KEY}.json"])
 
+    def test_a_failure_that_is_not_an_os_error_leaves_no_temp_file_and_propagates(self):
+        self.registry.update(KEY, spawned_marked)
+        for failure in (KeyboardInterrupt, RuntimeError):
+            with self.subTest(failure=failure.__name__):
+                with mock.patch("jam.registry.os.replace", side_effect=failure):
+                    with self.assertRaises(failure):
+                        self.registry.update(KEY, lambda raw: {**raw, "n": 1})
+                self.assertEqual([p.name for p in self.sessions_dir.iterdir()], [f"{KEY}.json"])
+
     def test_a_deleted_data_dir_is_recreated_by_the_next_update(self):
         self.registry.update(KEY, spawned_marked)
         shutil.rmtree(self.data)
@@ -203,13 +221,70 @@ class WritingTest(RegistryTestCase):
         self.registry.update(KEY, spawned_marked)
         self.assertTrue(self.registry.record(KEY).spawned)
 
-    def test_error_messages_carry_no_paths(self):
+
+class ErrorSurfaceTest(RegistryTestCase):
+    """Every RegistryError names the action and the OS reason, and nothing else.
+
+    A path would leak through the message or through a chained traceback, so both
+    are searched. `from None` is what keeps the chained OSError out of the traceback.
+    """
+
+    def failure_of(self, call):
+        with self.assertRaises(RegistryError) as caught:
+            call()
+        exc = caught.exception
+        shown = str(exc) + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        for marker in (self.root.name, LEAK):
+            self.assertNotIn(marker, shown)
+        return str(exc)
+
+    def os_error(self, number, text):
+        return OSError(number, text, LEAK)
+
+    def test_creating_the_directories_fails_cleanly(self):
         blocker = self.root / "blocker"
         blocker.write_text("not a directory")
-        with self.assertRaises(RegistryError) as caught:
-            Registry(blocker).update(KEY, spawned_marked)
-        self.assertNotIn(str(blocker), str(caught.exception))
-        self.assertIsNone(caught.exception.__cause__)
+        self.assertIn("create", self.failure_of(lambda: Registry(blocker).update(KEY, spawned_marked)))
+
+    def test_reading_a_note_that_cannot_be_read_fails_cleanly(self):
+        self.path_of().parent.mkdir(parents=True)
+        self.path_of().mkdir()  # a directory where the note should be: unreadable, and not an absence
+        self.assertIn("read", self.failure_of(lambda: self.registry.record(KEY)))
+
+    def test_removing_a_note_that_cannot_be_removed_fails_cleanly(self):
+        self.path_of().parent.mkdir(parents=True)
+        self.path_of().mkdir()
+        self.assertIn("remove", self.failure_of(lambda: self.registry.remove(KEY)))
+        self.assertTrue(self.path_of().is_dir())
+
+    def test_scanning_a_directory_that_cannot_be_scanned_fails_cleanly(self):
+        self.data.mkdir()
+        self.sessions_dir.write_text("not a directory")
+        self.assertIn("scan", self.failure_of(lambda: self.registry.prune()))
+
+    def test_pruning_a_note_that_cannot_be_removed_fails_cleanly(self):
+        self.registry.update(KEY, spawned_marked)
+        stamp = time.time() - 40 * 86400
+        os.utime(self.path_of(), (stamp, stamp))
+        with mock.patch("jam.registry.os.unlink", side_effect=self.os_error(errno.EPERM, "Operation not permitted")):
+            self.assertIn("prune", self.failure_of(lambda: self.registry.prune()))
+
+    def test_opening_the_lock_fails_cleanly(self):
+        self.sessions_dir.mkdir(parents=True)
+        (self.data / "sessions-v1.lock").mkdir()
+        self.assertIn("lock", self.failure_of(lambda: self.registry.update(KEY, spawned_marked)))
+
+    def test_locking_fails_cleanly(self):
+        with mock.patch("jam.registry.fcntl.flock", side_effect=self.os_error(errno.EIO, "Input/output error")):
+            self.assertIn("lock", self.failure_of(lambda: self.registry.update(KEY, spawned_marked)))
+
+    def test_creating_the_temp_file_fails_cleanly(self):
+        with mock.patch("jam.registry.tempfile.mkstemp", side_effect=self.os_error(errno.ENOSPC, "No space left on device")):
+            self.assertIn("write", self.failure_of(lambda: self.registry.update(KEY, spawned_marked)))
+
+    def test_replacing_the_note_fails_cleanly(self):
+        with mock.patch("jam.registry.os.replace", side_effect=self.os_error(errno.ENOSPC, "No space left on device")):
+            self.assertIn("write", self.failure_of(lambda: self.registry.update(KEY, spawned_marked)))
 
 
 class LockingTest(RegistryTestCase):
@@ -219,11 +294,11 @@ class LockingTest(RegistryTestCase):
         self.assertEqual([child.wait(timeout=60) for child in children], [0] * 6)
         self.assertEqual(json.loads(self.path_of().read_text())["n"], 120)
 
-    def test_threads_do_not_lose_updates(self):
+    def hammer(self, registry_for_a_thread):
         failures = []
 
         def work():
-            registry = Registry(self.data, lock_timeout=5)
+            registry = registry_for_a_thread()
             try:
                 for _ in range(25):
                     registry.update(KEY, lambda raw: {**raw, "n": raw.get("n", 0) + 1})
@@ -236,18 +311,38 @@ class LockingTest(RegistryTestCase):
         self.assertEqual(failures, [])
         self.assertEqual(json.loads(self.path_of().read_text())["n"], 200)
 
+    def test_threads_with_their_own_registries_do_not_lose_updates(self):
+        self.hammer(lambda: Registry(self.data, lock_timeout=5))
+
+    def test_threads_sharing_one_registry_do_not_lose_updates(self):
+        # A server shares one Registry across threads; a lock descriptor kept on the
+        # instance would be shared too, and flock does not exclude a shared descriptor.
+        shared = Registry(self.data, lock_timeout=5)
+        self.hammer(lambda: shared)
+
     def test_lock_timeout_is_bounded_and_reads_stay_free(self):
         self.registry.update(KEY, spawned_marked)
         holder = os.open(self.data / "sessions-v1.lock", os.O_RDWR)
         fcntl.flock(holder, fcntl.LOCK_EX)
-        try:
-            started = time.monotonic()
-            with self.assertRaises(RegistryError) as caught:
+        outcome = []
+
+        def attempt():
+            try:
                 Registry(self.data, lock_timeout=0.2).update("bbbb2222", spawned_marked)
-            self.assertLess(time.monotonic() - started, 2)
-            self.assertIn("busy", str(caught.exception))
+            except RegistryError as exc:
+                outcome.append(exc)
+
+        try:
+            # A daemon thread, so a lost bound fails the test instead of hanging the suite.
+            waiter = threading.Thread(target=attempt, daemon=True)
+            waiter.start()
+            waiter.join(timeout=5)
+            self.assertFalse(waiter.is_alive(), "update outlived its lock timeout")
+            self.assertEqual(len(outcome), 1)
+            self.assertIn("busy", str(outcome[0]))
             self.assertFalse(self.path_of("bbbb2222").exists())
             self.assertTrue(self.registry.record(KEY).spawned)
+            self.assertEqual(self.registry.prune(), 0)  # takes no lock either
             self.registry.remove(KEY)
         finally:
             os.close(holder)
@@ -272,6 +367,8 @@ class RemoveAndPruneTest(RegistryTestCase):
         self.registry.update("cccc3333", spawned_marked)
         orphan = self.sessions_dir / ".x.abc.tmp"
         orphan.write_text("partial")
+        fresh_temp = self.sessions_dir / ".y.def.tmp"  # an update in flight must keep its temp file
+        fresh_temp.write_text("partial")
         unrelated = self.sessions_dir / "notes.txt"
         unrelated.write_text("keep")
         self.age(self.path_of("aaaa1111"), 31)
@@ -283,8 +380,19 @@ class RemoveAndPruneTest(RegistryTestCase):
         self.assertFalse(orphan.exists())
         self.assertTrue(self.path_of("bbbb2222").exists())
         self.assertTrue(self.path_of("cccc3333").exists())
+        self.assertTrue(fresh_temp.exists())
         self.assertTrue(unrelated.exists())
         self.assertTrue((self.data / "sessions-v1.lock").exists())
+
+    def test_prune_skips_a_stale_directory_named_like_a_note_and_still_sweeps_the_rest(self):
+        self.registry.update("bbbb2222", spawned_marked)
+        directory = self.path_of("aaaa1111")
+        directory.mkdir()
+        self.age(directory, 40)
+        self.age(self.path_of("bbbb2222"), 40)
+        self.assertEqual(self.registry.prune(), 1)
+        self.assertTrue(directory.is_dir())
+        self.assertFalse(self.path_of("bbbb2222").exists())
 
     def test_prune_honours_an_explicit_age_and_clock(self):
         self.registry.update(KEY, spawned_marked)

@@ -149,6 +149,12 @@ class ListTest(ServiceTestCase):
         self.assertEqual([row.record for row in listing.sessions], [None])
         self.assertIn("cannot read", listing.problem)
 
+    def test_list_lets_a_registry_bug_through_instead_of_degrading_on_it(self):
+        # Only RegistryError is an expected, message-safe failure; anything else is a bug to surface.
+        stub = StubRegistry(record_error=RuntimeError("/private/path"))
+        with self.assertRaises(RuntimeError):
+            Jam(FakeHarness([session("aaaa1111")]), stub).list()
+
     def test_list_survives_an_odd_harness_id(self):
         listing = Jam(FakeHarness([session("../x")]), Registry(self.data)).list()
         self.assertEqual(listing.sessions[0].record, None)

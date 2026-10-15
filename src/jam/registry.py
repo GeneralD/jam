@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import tempfile
 import time
@@ -72,11 +73,9 @@ class Registry:
         """Remember where the notes live. Does no I/O: directories appear on the first update."""
         if not isinstance(data_dir, (str, os.PathLike)) or not Path(data_dir).is_absolute():
             raise InvalidRequest("the registry data directory must be an absolute path")
-        if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or lock_timeout < 0:
-            raise InvalidRequest("the lock timeout must be a non-negative number of seconds")
         self._root = Path(data_dir)
         self._dir = self._root / SESSIONS_DIR
-        self._lock_timeout = float(lock_timeout)
+        self._lock_timeout = _seconds(lock_timeout)
 
     def record(self, key: str) -> Record | None:
         """The note for `key`, or None when there is none, it is damaged, or the key is not an id.
@@ -97,7 +96,11 @@ class Registry:
         key = self._valid_key(key)
         path = self._path(key)
         try:
-            os.makedirs(self._dir, mode=0o700, exist_ok=True)
+            # One call per level: makedirs applies `mode` to the last level only, so
+            # the data directory would otherwise follow the umask. Ancestors above it
+            # belong to the platform and are left alone.
+            for directory in (self._root, self._dir):
+                os.makedirs(directory, mode=0o700, exist_ok=True)
         except OSError as exc:
             raise _unavailable("create", exc) from None
         with self._locked():
@@ -174,6 +177,19 @@ class Registry:
             yield
         finally:
             os.close(fd)  # closing releases the lock, also if the holder dies
+
+
+def _seconds(value: object) -> float:
+    """`value` as a finite, non-negative number of seconds; NaN and infinity would never reach a deadline."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidRequest("the lock timeout must be a non-negative number of seconds")
+    try:
+        seconds = float(value)
+    except OverflowError:  # an int too large for a float
+        raise InvalidRequest("the lock timeout must be a non-negative number of seconds") from None
+    if not math.isfinite(seconds) or seconds < 0:
+        raise InvalidRequest("the lock timeout must be a non-negative number of seconds")
+    return seconds
 
 
 def _acquired(fd: int, deadline: float) -> None:
