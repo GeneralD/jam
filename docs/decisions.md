@@ -70,9 +70,11 @@ Core is a session registry plus the verbs `spawn`, `list`, `stop`, and `whoami`
 (the exact set is settled in the skeleton PR). It is stdlib-only and knows
 nothing about a harness or a terminal. `send` and `result` are not jam verbs in
 v1: the skill teaches the AI to use the native `SendMessage` with the ids jam
-reports. A harness adapter and an environment seam each declare capabilities
-(`spawn_bg`, `inject`, `read_screen`, `wake_idle`) and the core degrades
-gracefully.
+reports. The harness adapter declares what it can do in v1 (`spawn_bg`, `list`,
+`stop`); messaging is the native `SendMessage`, not a jam capability. The
+environment seam would declare terminal-specific capabilities (`inject`,
+`read_screen`, `wake_idle`) only if an adapter were ever added, and the core
+degrades gracefully without them.
 
 v1 ships only the Claude Code harness adapter and no environment adapter. jam
 does not depend on a terminal multiplexer: it works for sessions that are
