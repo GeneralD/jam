@@ -205,6 +205,16 @@ checked against the release notes for
   "Workspace not trusted. Run `claude` in <dir> once and accept the trust
   prompt, then retry." `spawn` must detect this, stop, and tell the owner
   which directory to trust, instead of retrying or silently failing.
+- **Install from the public repository (verified by experiment).** With the
+  manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered
+  a marketplace named `jam` and `claude plugin install jam@jam` installed the
+  plugin at version 0.1.0 in user scope, enabled. `claude plugin uninstall
+  jam@jam` followed by `claude plugin marketplace remove jam` restored the plugin
+  and marketplace lists to exactly what they were before. Two details: because
+  the plugin source is the repository root (`./`), the installed copy is the
+  whole repository (docs, tests, and assets included, under 1 MB for now), and
+  uninstalling leaves the cached copy on disk. If the payload grows, move it to
+  a subdirectory and point the marketplace entry at it.
 
 ## Open verification items
 
@@ -217,7 +227,3 @@ checked against the release notes for
 - `claude stop` followed by `claude rm` once printed success while the session
   stayed in `claude agents` as idle; a second stop and rm removed it. Cleanup
   must re-list to confirm.
-- Install from the public repository: the marketplace is named `jam`, so the
-  install form is `jam@jam`. The manifests validate and load with
-  `--plugin-dir`, but a real `marketplace add` and `install` can only be checked
-  after the manifests are on `main`.

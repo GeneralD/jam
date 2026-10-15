@@ -2,7 +2,7 @@
 
 ![hero](assets/hero.png)
 
-![status](https://img.shields.io/badge/status-design-blue) ![plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)
+![status](https://img.shields.io/badge/status-early%20development-yellow) ![plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)
 **jam** — **J**unction for **A**I **M**essaging.
 
 Let AI coding agent sessions running in different repositories pass prompts and
@@ -47,7 +47,8 @@ scope for now; the adapter seams are there so they can be added when needed.
 
 ## Status
 
-Design phase. Nothing is installable yet.
+Early development. The plugin skeleton installs from this repository, but it
+does not do anything yet: no hooks, skills, or tools have been added.
 
 ## License
 
