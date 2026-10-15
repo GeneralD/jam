@@ -73,14 +73,50 @@ A delegation depth cap is required to prevent delegation loops.
 `jam`, expanded as "Junction for AI Messaging". The name mentions neither a
 harness nor a terminal so adapters can be added later.
 
+## Plugin platform facts
+
+Taken from the official Claude Code plugin and hooks documentation through a
+research pass. They have not been re-verified one by one; re-check the cited
+page before relying on a single claim.
+
+- **Layout.** `.claude-plugin/plugin.json`, `hooks/hooks.json` (the file needs a
+  top-level `"hooks"` key), `.mcp.json`, `skills/`, `bin/`. A plugin `bin/` is
+  added to the Bash tool's PATH while the plugin is enabled; jam does not rely
+  on it (see D5).
+- **Path variables.** `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` are exported
+  to hook processes and MCP stdio servers, but not to commands the model runs
+  through the Bash tool. This is why a SessionStart hook has to inject the
+  resolved path (D5). `CLAUDE_PLUGIN_DATA` survives plugin updates, so the
+  registry and mailbox live there instead of a temp directory.
+- **Hooks.** Plugin hooks behave like settings hooks. `additionalContext` must
+  be nested in `hookSpecificOutput`; at the top level it is silently ignored.
+  A Stop hook can block with `decision: block` but only a limited number of
+  consecutive times (check `stop_hook_active`). SessionEnd has a budget of
+  about 1.5 seconds, so unregistering must be fast and stale entries are also
+  swept at session start.
+- **Permissions.** A plugin cannot ship `permissions.allow`; only `agent` and
+  `subagentStatusLine` are honored from a plugin's `settings`. The documented
+  workaround is a `PermissionRequest` hook that allows the plugin's own MCP
+  tools. That is a plugin approving itself, so its matcher must be as narrow as
+  possible, or the first-run user approval is kept instead.
+- **Install.** The repository carries `.claude-plugin/marketplace.json`. Users
+  run `/plugin marketplace add GeneralD/jam`, then `/plugin install` with the
+  plugin and marketplace name. The one-step `--marketplace` form needs Claude
+  Code 2.1.275 or newer; the shell form `claude plugin install` needs 2.1.292
+  or newer. Auto-update is off by default for third-party marketplaces. There
+  is no install-time hook, so initialization happens lazily on first use.
+- **Background sessions.** Whether plugin hooks and MCP servers are active in
+  `--bg` sessions is not documented. It must be tested.
+
 ## Open verification items
 
 - zellij `write-chars`: does a trailing carriage return submit the prompt, and
   what happens when written during generation?
 - Can a background worker reply to its parent through `SendMessage`?
 - Do plugin hooks and plugin MCP servers run inside `--bg` sessions?
-- Can a plugin's MCP tools be preapproved to avoid permission prompts?
-- Private or public repo as its own marketplace: exact install commands.
+- Permission prompts for the plugin's MCP tools: `PermissionRequest` hook or
+  first-run user approval?
+- The exact marketplace name to use in `/plugin install`.
 
 ## Not done yet
 
