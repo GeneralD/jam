@@ -52,7 +52,8 @@ others are out of scope for now.
 The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
 (`additionalContext`), so no PATH change is needed. The MCP server and the CLI
-are thin entry points over the same core.
+are thin entry points over the same core. The registry and mailbox live in the
+plugin data directory and are disposable (see "Plugin platform facts").
 
 ## D6. Automatic delegation guard
 
@@ -75,9 +76,19 @@ harness nor a terminal so adapters can be added later.
 
 ## Plugin platform facts
 
-Taken from the official Claude Code plugin and hooks documentation through a
-research pass. They have not been re-verified one by one; re-check the cited
-page before relying on a single claim.
+Unless marked as verified, these facts were taken from the official Claude Code
+documentation through a research pass and have not been re-verified one by one;
+re-check the source before relying on a single claim.
+
+Sources: the plugin
+[manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference)
+(layout, environment variables, plugin settings, data directory), the
+[hooks guide](https://code.claude.com/docs/en/hooks-guide) (hook behavior), and
+[installing plugins](https://code.claude.com/docs/en/plugins/install)
+(marketplaces, private repositories). The install version requirements were
+checked against the release notes for
+[2.1.275](https://github.com/anthropics/claude-code/releases/tag/v2.1.275) and
+[2.1.292](https://github.com/anthropics/claude-code/releases/tag/v2.1.292).
 
 - **Layout.** `.claude-plugin/plugin.json`, `hooks/hooks.json` (the file needs a
   top-level `"hooks"` key), `.mcp.json`, `skills/`, `bin/`. A plugin `bin/` is
@@ -87,7 +98,12 @@ page before relying on a single claim.
   to hook processes and MCP stdio servers, but not to commands the model runs
   through the Bash tool. This is why a SessionStart hook has to inject the
   resolved path (D5). `CLAUDE_PLUGIN_DATA` survives plugin updates, so the
-  registry and mailbox live there instead of a temp directory.
+  registry and mailbox live there instead of a temp directory. Uninstalling the
+  plugin from its last scope deletes that directory unless `--keep-data` is
+  passed. jam treats this state as disposable: the registry only describes live
+  sessions and is rebuilt on the next session start, and a message that was not
+  yet delivered when the plugin was removed is dropped. Nothing that must outlive
+  an uninstall is stored there.
 - **Hooks.** Plugin hooks behave like settings hooks. `additionalContext` must
   be nested in `hookSpecificOutput`; at the top level it is silently ignored.
   A Stop hook can block with `decision: block` but only a limited number of
@@ -101,10 +117,13 @@ page before relying on a single claim.
   possible, or the first-run user approval is kept instead.
 - **Install.** The repository carries `.claude-plugin/marketplace.json`. Users
   run `/plugin marketplace add GeneralD/jam`, then `/plugin install` with the
-  plugin and marketplace name. The one-step `--marketplace` form needs Claude
-  Code 2.1.275 or newer; the shell form `claude plugin install` needs 2.1.292
-  or newer. Auto-update is off by default for third-party marketplaces. There
-  is no install-time hook, so initialization happens lazily on first use.
+  plugin and marketplace name; this two-step form needs no particular version.
+  One-step forms exist too: the in-session `/plugin install <plugin>
+  --marketplace <source>` (verified in the 2.1.275 release notes) and the shell
+  `claude plugin install <plugin> --marketplace <source>` (the `--marketplace`
+  flag was added to the shell command in 2.1.292; the command itself is older).
+  Auto-update is off by default for third-party marketplaces. There is no
+  install-time hook, so initialization happens lazily on first use.
 - **Background sessions (verified by experiment).** The documentation is
   silent, so a throwaway probe plugin was loaded with `--plugin-dir` into both a
   print-mode run (control) and a `claude --bg` session. In both, the plugin's
