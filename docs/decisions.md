@@ -146,8 +146,9 @@ and the spawned session are equals. The owner keeps instructing the spawned
 session directly, as with any session, and a spawned session may message any of
 its ancestors on its own initiative, not only reply to its spawner.
 
-Consequences: jam models a flat set of peers, not a tree. The registry lists
-sessions without a hierarchy (the spawner's id may be kept as provenance only),
+Consequences: jam models a flat set of peers, not a tree. jam lists sessions
+without a hierarchy, and the registry only annotates the harness's rows (the
+spawner's id may be kept as provenance only, see D11),
 and `whoami` lets any session learn its own id. A message from a peer is input
 to weigh, never an instruction that carries the sender's authority. Loop
 protection (D6) cannot rely on a spawn-chain depth alone, because a peer can be
@@ -187,7 +188,9 @@ Decided on 2026-10-15, from three independent designs reconciled into one.
   SessionEnd calls it is left to the hooks work (recommended: no, because a
   stopped session stays in the full listing and a resumed one returns with the
   same id).
-- **Platform.** macOS and Linux (`fcntl`), local filesystem only.
+- **Platform.** macOS and Linux (`fcntl`), local filesystem only. The data
+  directory and its subdirectory are created 0700 (the notes 0600), whatever the
+  umask, so another local user cannot replace them.
 - **Not stored, on purpose.** The spawner's id (no reader, and nothing can write
   it yet), the working directory, the full session id, and timestamps (the
   file's modification time is the clock for `prune`). Each is added by the change
