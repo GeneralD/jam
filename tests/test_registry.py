@@ -1,5 +1,6 @@
 """Tests for the session registry: one small JSON file per session."""
 
+import contextlib
 import errno
 import fcntl
 import json
@@ -351,6 +352,32 @@ class LockingTest(RegistryTestCase):
 
 
 class RemoveAndPruneTest(RegistryTestCase):
+    def test_prune_reports_a_stat_failure_instead_of_skipping_the_entry(self):
+        class Unstatable:
+            name, path = "aaaa1111.json", "/leak/marker/aaaa1111.json"
+
+            def stat(self, follow_symlinks=True):
+                raise PermissionError(errno.EACCES, "Permission denied", self.path)
+
+            def is_dir(self, follow_symlinks=True):
+                return False
+
+        with mock.patch("jam.registry.os.scandir", return_value=contextlib.nullcontext([Unstatable()])):
+            with self.assertRaises(RegistryError) as caught:
+                self.registry.prune()
+        self.assertIn("prune", str(caught.exception))
+        self.assertNotIn(LEAK, str(caught.exception))
+
+    def test_prune_skips_an_entry_removed_between_the_scan_and_the_stat(self):
+        class Vanished:
+            name, path = "aaaa1111.json", "/x/aaaa1111.json"
+
+            def stat(self, follow_symlinks=True):
+                raise FileNotFoundError(errno.ENOENT, "No such file or directory", self.path)
+
+        with mock.patch("jam.registry.os.scandir", return_value=contextlib.nullcontext([Vanished()])):
+            self.assertEqual(self.registry.prune(), 0)
+
     def age(self, path, days):
         stamp = time.time() - days * 86400
         os.utime(path, (stamp, stamp))

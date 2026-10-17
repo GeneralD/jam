@@ -215,9 +215,12 @@ def _prunable(entry: os.DirEntry[str], now: float, max_age: float) -> bool:
         return False
     try:
         info = entry.stat(follow_symlinks=False)
-    except OSError:
+        directory = entry.is_dir(follow_symlinks=False)
+    except FileNotFoundError:  # removed since the scan
         return False
-    return not entry.is_dir(follow_symlinks=False) and expired(info.st_mtime, now, max_age)
+    except OSError as exc:
+        raise _unavailable("prune", exc) from None
+    return not directory and expired(info.st_mtime, now, max_age)
 
 
 def _unlinked(path: str) -> int:
