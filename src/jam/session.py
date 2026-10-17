@@ -2,8 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
+
+# Ids become file names and argv entries, so this pattern must never admit "/",
+# NUL, or a leading "." or "-".
+ID_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def is_id(value: object) -> bool:
+    """True only for a string that is a safe session id; any other type is not one."""
+    return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+
+
+@dataclass(frozen=True)
+class Spawned:
+    id: str
+    name: str | None
 
 
 @dataclass(frozen=True)

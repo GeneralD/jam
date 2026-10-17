@@ -91,7 +91,7 @@ The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
 (`additionalContext`), so no PATH change is needed. The MCP server and the CLI
 are thin entry points over the same core. The registry lives in the plugin data
-directory and is disposable (see "Plugin platform facts").
+directory and is disposable (see "Plugin platform facts"). Its shape is D11.
 
 ## D6. Automatic delegation guard
 
@@ -116,9 +116,12 @@ Loop protection is required, and the mechanism is still to be designed. An
 environment variable set by the spawner does not reach the worker (see Platform
 facts), so a depth counter cannot travel that way, and D10 rules out relying on
 spawn-chain depth alone. Candidates, undecided: a record the spawner writes
-keyed by the worker's `sessionId` and read by the worker's hook (it races: the
-worker's hook can fire before the spawner has recorded anything), or a marker
-carried in the spawn prompt itself.
+keyed by the worker's short id (the first 8 characters of its `sessionId`) and
+read by the worker's hook, or a marker carried in the spawn prompt itself. The
+record races: the worker's hook can fire before the spawner has recorded
+anything, and D11 does not remove that race. Prefer the marker in the prompt,
+unless `claude --bg --session-id` turns out to be honored, which would let the
+spawner record before the session starts.
 
 ## D7. Name
 
@@ -143,12 +146,57 @@ and the spawned session are equals. The owner keeps instructing the spawned
 session directly, as with any session, and a spawned session may message any of
 its ancestors on its own initiative, not only reply to its spawner.
 
-Consequences: jam models a flat set of peers, not a tree. The registry lists
-sessions without a hierarchy (the spawner's id may be kept as provenance only),
+Consequences: jam models a flat set of peers, not a tree. jam lists sessions
+without a hierarchy, and the registry only annotates the harness's rows (the
+spawner's id may be kept as provenance only, see D11),
 and `whoami` lets any session learn its own id. A message from a peer is input
 to weigh, never an instruction that carries the sender's authority. Loop
 protection (D6) cannot rely on a spawn-chain depth alone, because a peer can be
 addressed by a session that did not spawn it; it is designed with the guard.
+
+## D11. The session registry
+
+Decided on 2026-10-15, from three independent designs reconciled into one.
+
+- **Shape.** One small JSON file per session, `sessions-v1/<id>.json` under the
+  plugin data directory, keyed by the harness's short id (the one `spawn`
+  returns; the full `sessionId` would cost another harness call at the one point
+  that must not fail). The only field jam reads is `spawned`. Unknown keys are
+  kept on every write, so an older writer never erases a newer one's fields. A
+  format change renames the directory (`sessions-v2`) instead of adding a
+  version field.
+- **Harness first.** The harness stays the source of truth for which sessions
+  exist. `list` is a left join from harness rows onto notes; a note without a
+  row is never shown, and a missing or unreadable note means "unknown", not
+  "not spawned by jam".
+- **Locking.** Only writes lock. `flock` on a sidecar lock file (not the data
+  file, whose inode `os.replace` swaps) is polled against a short deadline,
+  because `flock` has no timeout and a blocking wait would hang a hook. The
+  write goes to a temp file in the same directory and is renamed over the note;
+  there is no fsync because the data is disposable. Reads, `remove`, and `prune`
+  take no lock, and the lock is never held while the harness spawns.
+- **Failure.** Damaged, oversized, or wrongly typed content reads as "no note"
+  and the next update overwrites it. An OS error (permissions, I/O) is never
+  treated as an absence: it raises `RegistryError`, which is not a
+  `HarnessError`, carries no path, and never leads to an overwrite. A spawn that
+  succeeded never raises because of the registry: `Jam.spawn` returns the id
+  together with a `problem` text, so a caller is not tempted to respawn.
+- **Sweeping.** By file age only (30 days), not against the harness listing:
+  whether foreground sessions appear in `claude agents` is unverified, and a
+  listing-based sweep could delete the notes of live sessions the listing does
+  not show. The SessionStart hook is to call `prune`. `remove` exists; whether
+  SessionEnd calls it is left to the hooks work (recommended: no, because a
+  stopped session stays in the full listing and a resumed one returns with the
+  same id).
+- **Platform.** macOS and Linux (`fcntl`), local filesystem only. The data
+  directory and its subdirectory are created 0700 (the notes 0600), whatever the
+  umask, so another local user cannot replace them.
+- **Not stored, on purpose.** The spawner's id (no reader, and nothing can write
+  it yet), the working directory, the full session id, and timestamps (the
+  file's modification time is the clock for `prune`). Each is added by the change
+  that brings its reader.
+- **Not solved here.** D6: `spawned` is recorded after the spawn returns, so a
+  worker's first hook can run before the note exists.
 
 ## Plugin platform facts
 
@@ -176,15 +224,18 @@ checked against the release notes for
   resolved path (D5). `CLAUDE_PLUGIN_DATA` survives plugin updates, so the
   registry lives there instead of a temp directory. Uninstalling the plugin from
   its last scope deletes that directory unless `--keep-data` is passed. jam
-  treats this state as disposable: the registry only describes live sessions and
-  is rebuilt on the next session start. Nothing that must outlive an uninstall
-  is stored there.
+  treats this state as disposable: the registry holds only jam's own notes about
+  sessions (today, which ones jam spawned), while the harness stays the source of
+  truth for which sessions exist. Losing a note costs only its annotation, though
+  a lost `spawned` note cannot be rebuilt from the harness. Nothing that must
+  outlive an uninstall is stored there.
 - **Hooks.** Plugin hooks behave like settings hooks. `additionalContext` must
   be nested in `hookSpecificOutput`; at the top level it is silently ignored.
   A Stop hook can block with `decision: block` but only a limited number of
   consecutive times (check `stop_hook_active`). SessionEnd has a budget of
-  about 1.5 seconds, so unregistering must be fast and stale entries are also
-  swept at session start.
+  about 1.5 seconds, so nothing slow may run there: the registry's reads and
+  `remove` take no lock and start no subprocess, and stale notes are swept by
+  age (`prune`) rather than at the end of a session.
 - **Permissions.** A plugin cannot ship `permissions.allow`; only `agent` and
   `subagentStatusLine` are honored from a plugin's `settings`. The documented
   workaround is a `PermissionRequest` hook that allows the plugin's own MCP
@@ -260,3 +311,6 @@ checked against the release notes for
   checks the full listing and reports a session that is still there.
 - Interactive (foreground) sessions: do they appear in `claude agents --json`,
   and can a worker's message wake one?
+- Does `claude --bg --session-id <uuid>` keep the id it is given? If so, the
+  spawner can write a note before the session starts, which closes the race in
+  D6. It needs a real spawn in a trusted directory to find out.
