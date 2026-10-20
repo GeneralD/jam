@@ -32,7 +32,8 @@ from ..errors import InvalidRequest, RegistryError
 from . import claude_env, hook_io, notice
 
 # Derived from this file's own place in the tree (<root>/src/jam/harness); compose.PLUGIN_ROOT is the same directory, pinned equal by a test.
-PLUGIN_ROOT: Final = Path(__file__).resolve().parents[3]
+# No resolve() here: the launcher already hands over a resolved src path, and a path lookup must not run before the alarm or inside the notice.
+PLUGIN_ROOT: Final = Path(__file__).parents[3]
 
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.
 Handler = Callable[[dict[str, Any], Mapping[str, str]], Optional[str]]

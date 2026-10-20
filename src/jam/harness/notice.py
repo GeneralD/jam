@@ -23,6 +23,7 @@ HEAD: Final = "jam lets this session start, list and stop background Claude Code
 RUN: Final = "Run jam through Bash exactly as: "
 UNAVAILABLE: Final = "The jam command line is unavailable here; use the MCP tools."
 COMMANDS: Final = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | whoami"
+QUOTE: Final = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
 MCP: Final = "The same four operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __whoami."
 NO_NOTES: Final = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 DELEGATE: Final = (
@@ -74,5 +75,5 @@ def identified(session_id: object) -> str:
 
 def session_notice(prefix: Optional[str], session_id: object) -> str:
     """The notice for one session: LF-joined lines, ASCII for ASCII paths, without a trailing newline."""
-    lines = (HEAD, running(prefix), COMMANDS, MCP, unnoted(prefix), identified(session_id), DELEGATE, PEERS)
+    lines = (HEAD, running(prefix), COMMANDS, QUOTE, MCP, unnoted(prefix), identified(session_id), DELEGATE, PEERS)
     return "\n".join(line for line in lines if line)

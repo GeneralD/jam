@@ -240,6 +240,21 @@ class PluginRootTest(unittest.TestCase):
     def test_the_root_holds_the_launcher_the_notice_points_at(self):
         self.assertTrue((hooks.PLUGIN_ROOT / "scripts" / "jam").is_file())
 
+    def test_importing_the_hook_and_building_the_notice_resolves_no_path(self):
+        # Path resolution happens before the alarm is armed, or inside the notice, so it would be outside the bound: refuse it in a fresh interpreter.
+        script = "\n".join([
+            "import os.path, pathlib, sys",
+            "def refused(*args, **kwargs):",
+            "    raise AssertionError('a path was resolved')",
+            "pathlib.Path.resolve = refused",
+            "os.path.realpath = refused",
+            "sys.path.insert(0, sys.argv[1])",
+            "from jam.harness import claude_hooks",
+            "claude_hooks.notice_text({}, {})",
+        ])
+        done = subprocess.run([sys.executable, "-I", "-c", script, str(SRC)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
 
 class ImportGraphTest(unittest.TestCase):
     HEAVY = ("argparse", "subprocess", "tempfile", "jam.cli", "jam.compose", "jam.mcp", "jam.operations", "jam.service", "jam.registry")

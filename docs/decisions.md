@@ -384,7 +384,8 @@ needs it.
   the notice is still printed, without the session id line. Only a crash, the
   alarm or a stdout that cannot be written leaves no output, and the alarm ends
   a hung hook by signal, so that exit status is not 0. A failed write to stdout,
-  whatever its error, points the descriptor at `/dev/null` (the helper the
+  or to stderr when the crash report cannot be written, whatever its error,
+  points the descriptor at `/dev/null` (the helper the
   command line shares, `silenced` in `src/jam/streams.py`), so the interpreter's
   flush at exit cannot fail again and turn exit 0 into 120. A closed stdout or
   stderr, which Python reports as `None`, is the same kind of failure and exits 0. `prune` swallows `RegistryError`, `InvalidRequest` and

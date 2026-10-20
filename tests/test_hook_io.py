@@ -6,6 +6,8 @@ import io
 import json
 import os
 import signal
+import subprocess
+import sys
 import unittest
 
 import support  # noqa: F401  (puts src/ on sys.path)
@@ -160,6 +162,15 @@ class StreamTest(unittest.TestCase):
 
     def test_an_error_stream_that_does_not_exist_is_not_an_error(self):
         hook_io.reported(None, RuntimeError("x"))  # descriptor 2 was closed before the interpreter started: sys.stderr is None
+
+
+class BrokenErrorStreamTest(unittest.TestCase):
+    def test_a_crash_reported_to_a_vanished_stderr_still_exits_zero(self):
+        # The failed write leaves its text buffered; unless the stream is silenced, the exit-time flush fails again and the status becomes 120.
+        code = "import sys; sys.path.insert(0, sys.argv[1]); from jam.harness import hook_io; hook_io.reported(sys.stderr, RuntimeError('x'))"
+        child = subprocess.Popen([sys.executable, "-I", "-c", code, str(support.SRC)], stderr=subprocess.PIPE)
+        child.stderr.close()  # the reader is gone before the child writes anything
+        self.assertEqual(child.wait(timeout=30), 0)
 
 
 if __name__ == "__main__":

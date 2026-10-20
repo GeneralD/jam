@@ -28,7 +28,8 @@ RUN = f"Run jam through Bash exactly as: {PREFIX} COMMAND"
 RUN_WITHOUT_DATA = f"Run jam through Bash exactly as: {PLAIN} COMMAND"
 RUN_UNAVAILABLE = "The jam command line is unavailable here; use the MCP tools."
 COMMANDS = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | whoami"
-MCP = "The same four operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __whoami."
+QUOTE = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
+MCP ="The same four operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __whoami."
 NO_NOTES = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 SESSION_LINE = f"This session id: {SESSION_ID}"
 DELEGATE = (
@@ -42,10 +43,10 @@ def joined(*lines):
     return "\n".join(lines)
 
 
-SAMPLE = joined(HEAD, RUN, COMMANDS, MCP, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_DATA_DIR = joined(HEAD, RUN_WITHOUT_DATA, COMMANDS, MCP, NO_NOTES, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_COMMAND_LINE = joined(HEAD, RUN_UNAVAILABLE, COMMANDS, MCP, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_SESSION_ID = joined(HEAD, RUN, COMMANDS, MCP, DELEGATE, PEERS)
+SAMPLE = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, SESSION_LINE, DELEGATE, PEERS)
+WITHOUT_DATA_DIR = joined(HEAD, RUN_WITHOUT_DATA, COMMANDS, QUOTE, MCP, NO_NOTES, SESSION_LINE, DELEGATE, PEERS)
+WITHOUT_COMMAND_LINE = joined(HEAD, RUN_UNAVAILABLE, COMMANDS, QUOTE, MCP, SESSION_LINE, DELEGATE, PEERS)
+WITHOUT_SESSION_ID = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, DELEGATE, PEERS)
 
 # Paths the prefix must refuse: relative, empty, wrong type, a control character, too long, not encodable.
 UNUSABLE = (None, "", "relative/dir", "./x", "/a\nb", "/a\rb", "/a\x00b", "/a\x7fb", "/a\tb", "/" + "a" * 1024, 42, b"/abs", "/a\udcffb")
@@ -99,11 +100,14 @@ class TextTest(unittest.TestCase):
     def test_the_sample_text_is_exact(self):
         self.assertEqual(text_for(), SAMPLE)
 
-    def test_the_text_has_no_trailing_newline_and_seven_lines(self):
+    def test_the_text_has_no_trailing_newline_and_eight_lines(self):
         self.assertFalse(text_for().endswith("\n"))
-        self.assertEqual(len(text_for().split("\n")), 7)
+        self.assertEqual(len(text_for().split("\n")), 8)
 
-    def test_without_a_data_dir_the_flag_goes_and_one_line_is_added_after_line_four(self):
+    def test_the_placeholders_are_told_to_be_quoted_because_the_model_writes_the_command(self):
+        self.assertIn("as one shell word", text_for())
+
+    def test_without_a_data_dir_the_flag_goes_and_one_line_is_added_after_the_mcp_line(self):
         self.assertEqual(text_for(data=None), WITHOUT_DATA_DIR)
         self.assertEqual(text_for(data="relative"), WITHOUT_DATA_DIR)
 

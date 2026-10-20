@@ -6,7 +6,6 @@ too, so a hook starts about as fast as the interpreter does.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import signal
 from collections.abc import Callable
@@ -78,9 +77,15 @@ def emitted(stream: IO[str], line: str) -> None:
 
 
 def reported(stream: Optional[IO[str]], error: BaseException) -> None:
-    """Say which kind of error ended the hook, and nothing else: a message can hold a path or a payload fragment."""
+    """Say which kind of error ended the hook, and nothing else: a message can hold a path or a payload fragment.
+
+    A stderr that cannot take the line is silenced as stdout is, so the exit-time
+    flush cannot turn exit 0 into 120.
+    """
     if stream is None:  # descriptor 2 was closed before the interpreter started
         return
-    with contextlib.suppress(OSError, ValueError):  # nobody may be listening to stderr either
+    try:
         stream.write(type(error).__name__ + "\n")
         stream.flush()
+    except (OSError, ValueError):  # nobody may be listening to stderr either
+        silenced(stream)
