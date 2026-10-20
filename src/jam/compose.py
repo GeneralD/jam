@@ -22,7 +22,7 @@ from .service import Jam
 PLUGIN_ROOT: Final = Path(__file__).resolve().parent.parent.parent
 MANIFEST: Final = Path(".claude-plugin") / "plugin.json"
 MAX_MANIFEST_BYTES: Final = 64 * 1024
-NO_DATA_DIR: Final = "no data directory: pass --data-dir (the SessionStart notice shows the exact command)"
+NO_DATA_DIR: Final = "no data directory: pass --data-dir before the command (the SessionStart notice gives the full command line)"
 
 
 class UnavailableRegistry:

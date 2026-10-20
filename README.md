@@ -46,6 +46,12 @@ and `whoami` as tools. The CLI is the launcher `scripts/jam`, run as
 the tools are not available. Both print the same JSON for the same arguments.
 The reasoning is in [docs/decisions.md](docs/decisions.md) (D12).
 
+Two SessionStart hooks run through the same launcher (`scripts/jam hook ...`):
+one injects a short notice that gives the model the exact command line, with the
+data directory flag, and the other sweeps stale session notes at startup. They
+never block a session: a failure they can handle still exits 0, and one that
+hangs is ended by an alarm (D13).
+
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
 depend on a terminal multiplexer. Other harnesses and terminals are out of
@@ -55,18 +61,21 @@ scope for now; the adapter seams are there so they can be added when needed.
 
 - Claude Code.
 - `python3`, version 3.9 or newer, on the PATH of the Claude Code process. The
-  MCP server and the CLI both start with it. On macOS without the developer
-  tools, `python3` is a stub that prompts to install them.
+  MCP server, the CLI and the hooks all start with it. On macOS without the
+  developer tools, `python3` is a stub that prompts to install them.
 
 ## Status
 
-Early development. The plugin installs from this repository and now carries
-the MCP server and the CLI with `spawn`, `list`, `stop`, and `whoami`. They are
-tested against fakes in place of Claude Code and have not yet been run end to
-end in a live session. The hooks and the skill do not exist yet
-(`hooks/hooks.json` declares no hooks and there is no `skills/` directory), so
-the delegation guard and the `SendMessage` guidance described above are planned,
-not shipped.
+Early development. The plugin installs from this repository and carries the MCP
+server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus two
+SessionStart hooks: the notice that tells the model how to run jam, and the
+startup sweep of stale notes. All of it is tested against fakes in place of
+Claude Code and has not yet been run end to end in a live session. The one
+check left to the owner is `claude --plugin-dir .`, started in a trusted
+directory and not as a background session (`--bg`). The delegation guard and the
+skill do not exist yet (`hooks/hooks.json` declares only the two SessionStart
+hooks and there is no `skills/` directory), so the guard and the `SendMessage`
+guidance described above are planned, not shipped.
 
 ## License
 
