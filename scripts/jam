@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Launcher for jam, run as `python3 -I <plugin root>/scripts/jam ...`.
+
+It lives in scripts/ rather than bin/ so that it never joins the Bash PATH, and it
+writes no bytecode because the versioned plugin cache is not ours to write to.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from jam.cli import main  # noqa: E402
+
+sys.exit(main(sys.argv[1:]))

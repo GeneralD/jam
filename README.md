@@ -37,18 +37,36 @@ core            session registry, verbs: spawn / list / stop / whoami
  ├ harness      how a session is started, listed, stopped, and read
  └ environment  seam for terminal-specific delivery (no adapter in v1)
 messaging       Claude Code's native SendMessage, taught to the AI by a skill
-entry points    MCP server and CLI, both thin wrappers over the same core
+entry points    MCP server (.mcp.json) and CLI (scripts/jam), one operations table
 ```
+
+The MCP server is declared in `.mcp.json` and offers `spawn`, `list`, `stop`,
+and `whoami` as tools. The CLI is the launcher `scripts/jam`, run as
+`python3 -I <plugin root>/scripts/jam <command>`; it is the fallback for when
+the tools are not available. Both print the same JSON for the same arguments.
+The reasoning is in [docs/decisions.md](docs/decisions.md) (D12).
 
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
 depend on a terminal multiplexer. Other harnesses and terminals are out of
 scope for now; the adapter seams are there so they can be added when needed.
 
+## Requirements
+
+- Claude Code.
+- `python3`, version 3.9 or newer, on the PATH of the Claude Code process. The
+  MCP server and the CLI both start with it. On macOS without the developer
+  tools, `python3` is a stub that prompts to install them.
+
 ## Status
 
-Early development. The plugin skeleton installs from this repository, but it
-does not do anything yet: no hooks, skills, or tools have been added.
+Early development. The plugin installs from this repository and now carries
+the MCP server and the CLI with `spawn`, `list`, `stop`, and `whoami`. They are
+tested against fakes in place of Claude Code and have not yet been run end to
+end in a live session. The hooks and the skill do not exist yet
+(`hooks/hooks.json` declares no hooks and there is no `skills/` directory), so
+the delegation guard and the `SendMessage` guidance described above are planned,
+not shipped.
 
 ## License
 

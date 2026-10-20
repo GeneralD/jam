@@ -67,7 +67,7 @@ return only if native messaging proves insufficient for a registered session.
 Decided on 2026-10-15 (native-first).
 
 Core is a session registry plus the verbs `spawn`, `list`, `stop`, and `whoami`
-(the exact set is settled in the skeleton PR). It is stdlib-only and knows
+(D12 shows how the entry points expose them). It is stdlib-only and knows
 nothing about a harness or a terminal. `send` and `result` are not jam verbs in
 v1: the skill teaches the AI to use the native `SendMessage` with the ids jam
 reports. The harness adapter declares what it can do in v1 (`spawn_bg`, `list`,
@@ -90,8 +90,9 @@ scope.
 The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
 (`additionalContext`), so no PATH change is needed. The MCP server and the CLI
-are thin entry points over the same core. The registry lives in the plugin data
-directory and is disposable (see "Plugin platform facts"). Its shape is D11.
+are thin entry points over the same core; their shape is D12. The registry lives
+in the plugin data directory and is disposable (see "Plugin platform facts").
+Its shape is D11.
 
 ## D6. Automatic delegation guard
 
@@ -198,6 +199,138 @@ Decided on 2026-10-15, from three independent designs reconciled into one.
 - **Not solved here.** D6: `spawned` is recorded after the spawn returns, so a
   worker's first hook can run before the note exists.
 
+## D12. Entry points
+
+Decided on 2026-10-20, from several independent designs reconciled into one and
+checked against the official documentation (see "Plugin platform facts" for
+which claims are documented and which are client behavior seen in the design
+pass).
+
+- **One table, two transports.** `spawn`, `list`, `stop`, and `whoami` are rows
+  of one operations table. The table generates the MCP tool schemas and the CLI
+  parser, checks arguments in one place, and is the only code that runs the core
+  and the only code that catches exceptions. The MCP server and the CLI are thin
+  transports over it, so they cannot disagree: for the same arguments the CLI
+  prints the very JSON line that the MCP tool returns as its text. A composition
+  root is the only non-test module that names the Claude Code adapter, and one
+  module of the harness adapter is the only home of `CLAUDE_*` variable names.
+  A later verb costs one table row and its tests.
+- **Data directory.** The CLI takes a global `--data-dir DIR` flag that precedes
+  the command; the MCP server takes `CLAUDE_PLUGIN_DATA`, which the platform
+  exports to it, so `.mcp.json` passes no data-dir argument. One resolver serves
+  both: a non-empty flag, else the variable, else none. The SessionStart notice
+  is to bake the flag into one copy-paste command prefix; that notice belongs to
+  the hooks work and is not shipped yet, so until then a CLI call without the
+  flag runs without a registry (see the degradation below). Rejected:
+  - the variable alone: it does not reach commands the model runs through the
+    Bash tool (see "Plugin platform facts"), so the CLI would have no registry;
+  - MCP only, with no CLI: no shell fallback when the tools are unavailable;
+  - deriving the documented data directory from the plugin id: a hardcoded
+    path, which D5 and the public-repository rule forbid, and it would break
+    silently if the platform changed how the directory is named;
+  - a must-pre-exist check, or creating the directory only in a hook: it
+    contradicts the lazy initialization of D11 and breaks the first session
+    after install, before any hook has run.
+- **Registry degradation.** A missing, empty, or relative data directory does not
+  fail the call. The composition root substitutes a stand-in registry whose
+  writes raise `RegistryError` with a path-free reason, which the service turns
+  into `problem` next to a result that is still correct (D11): `spawn` still
+  returns its id, `list` still returns its rows, and `stop` and `whoami` never
+  touch the registry. Nothing is created at startup or at construction, because
+  the platform may start the MCP server more than once per session start.
+  An empty listing reads no notes, so it reports no `problem` even when the
+  registry is unavailable; the first `spawn` names the reason.
+
+- **Errors: `isError` for the tool, protocol errors for the envelope.** A failure
+  inside a known tool is a tool result with `isError: true`, so the model reads
+  it and can react; the MCP specification reserves protocol errors for a
+  malformed message, an unknown tool, or malformed params. A failure is one
+  clean line: whitespace collapsed, escape sequences and control characters
+  removed, capped at 2000 characters, never a traceback. Harness stderr is
+  multi-line and echoed raw, and a message from an unexpected exception could
+  hold a path, so such an exception reports only its type name. A `spawn`
+  failure that may have started a session says so and tells the caller to run
+  `list` before retrying; a "workspace not trusted" failure says nothing was
+  started and not to retry until the owner confirms. The CLI mirrors this: exit
+  0 on success, including a result whose `problem` is set (the session exists,
+  and a nonzero code would invite a respawn); 1 with one `jam: ...` line on
+  stderr and nothing on stdout when the operation failed; 2 for a usage error.
+- **`whoami` comes from `CLAUDE_CODE_SESSION_ID`, and over MCP it can be
+  stale.** It is a pure function of the environment and makes no harness call:
+  `session_id` is that variable (a failure naming the variable, never its value,
+  when it is missing or malformed), and `id` is the last path component of
+  `CLAUDE_JOB_DIR` when that passes the id check, else null. The short id is
+  never cut from the first 8 characters of the session id: that relation was
+  observed (see "Background session commands") but is not documented. The
+  documentation says an MCP server keeps the id it was started with, so after
+  `/clear`, or `--continue` and `--resume` without an explicit id, the MCP answer
+  may be stale, while the command run through Bash is always current. Because
+  `CLAUDE_JOB_DIR` is documented only for background sessions and their shell
+  commands, `id` is null in a foreground session and not guaranteed over MCP; the
+  caller then matches `session_id` in `list`. Reading the short id from the
+  harness listing inside `whoami` would add a harness call and is deferred. Only
+  the two named variables are read: another `CLAUDE_CODE_SESSION_*` variable
+  carries a credential.
+- **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
+  but neither entry point offers it, and supplying it is an unknown-argument
+  error (a tool result with `isError`, or CLI exit 2). A mode chosen by the model
+  would bypass the per-tool first-use approval of D8, and which mode a worker
+  should get is still an open item. When it is exposed, use an owner-visible
+  allowlist that never accepts a bypass-class mode.
+- **The launcher is `scripts/jam`, not `bin/`.** The plugin documentation puts
+  every `bin/` file on the Bash tool's PATH while the plugin is enabled, which
+  would add an unrequested bare `jam` command that fails without `--data-dir` and
+  contradicts D5's no-PATH rule, and claude.ai and Cowork do not install a plugin
+  that has `bin/`. Nothing relies on the executable bit.
+- **`python3 -I`.** Both entry points run the launcher as
+  `python3 -I <plugin root>/scripts/jam`. Isolated mode ignores `PYTHON*`
+  variables and the user site and keeps the script's directory off `sys.path`,
+  so a stray `json.py` or a hostile `PYTHONPATH` cannot shadow the standard
+  library; the launcher then puts `src/` first itself and writes no bytecode,
+  because the versioned plugin cache is not jam's to write to. The interpreter is
+  the one thing that must be on the PATH of the Claude Code process (3.9 or
+  newer; the README states it). The install-only rule forbids settings edits, not
+  a documented interpreter requirement.
+- **Names.** The server key is `jam` and the tools are bare verbs, so the model
+  sees `mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, and `__whoami`.
+  Descriptive names would only be worth it if tool search were seen hiding them.
+- **Unverified.** No session was started to test this change, so these are open
+  (also listed under "Open verification items"): the four tools appearing in a
+  real `claude --plugin-dir` load, and `claude` being on the PATH of an MCP server
+  that runs inside a `--bg` worker. A failure of the second reads "cannot run
+  'claude': executable not found"; add a binary override only if it happens.
+- **Deferred.** The SessionStart hook wiring and notice text, the foreign-repo
+  guard (D6), the skill, self-stop refusal in code (the short id is not reliably
+  known over MCP, so the `stop` description warns instead), a `remove` or `prune`
+  verb, and the MCP extras (server instructions, pagination, structured output,
+  cancellation).
+
+- **Interrupts and a vanished reader.** An interrupt ends the command with exit
+  130 (the shell's status for SIGINT) and nothing on stderr, because a traceback
+  would only add paths. A reader that has gone away (a broken pipe) is never an
+  operation failure: the stream's descriptor is pointed at `/dev/null`, the MCP
+  server ends quietly, and a one-shot command exits 0. The write still raises, so
+  the server loop stops. The same holds for `--help` and a usage error, which
+  argparse prints into memory and the CLI then writes through the same guarded
+  path: help still exits 0 and a usage error still exits 2, with no traceback and
+  no text left in a buffer for the exit-time flush to fail on.
+- **Argument checks.** A string that cannot be passed on, such as an unpaired
+  surrogate (JSON can carry one; a command line cannot), is an invalid request,
+  checked with `os.fsencode`. A usage error shows the failing command's own usage
+  line, not the root one. The CLI spells the flags as `--include-exited` and the
+  MCP schema as `include_exited`; both spellings come from the one table.
+  Every key must be one the operation accepts, whatever it holds; only then does
+  a null for an optional parameter count as absent, and a null for a required one
+  is the wrong type.
+- **Envelope checks.** A line is answered only when it is a JSON object whose
+  `jsonrpc` is exactly "2.0"; anything else is -32600, with the request's `id`
+  echoed when it is a valid one (a string or a finite number, never null, a
+  boolean or a container) and null otherwise. Only then are client responses
+  and notifications ignored. NaN, Infinity and -Infinity are parse errors
+  (-32700), as strict JSON has none. A known method takes an object for
+  `params` or none, and anything else is -32602; an unknown method is -32601
+  whatever its `params`.
+
 ## Plugin platform facts
 
 Unless marked as verified, these facts were taken from the official Claude Code
@@ -209,15 +342,27 @@ Sources: the plugin
 (layout, environment variables, plugin settings, data directory), the
 [hooks guide](https://code.claude.com/docs/en/hooks-guide) (hook behavior), and
 [installing plugins](https://code.claude.com/docs/en/plugins/install)
-(marketplaces, private repositories). The install version requirements were
+(marketplaces, private repositories), the
+[MCP page](https://code.claude.com/docs/en/mcp) (plugin MCP servers, tool
+names), the
+[environment variables page](https://code.claude.com/docs/en/env-vars)
+(session variables), and the MCP specification, revision 2025-11-25
+([transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
+[lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
+[tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)).
+The MCP and environment items below were re-read against those pages on
+2026-10-20. Items labeled "client behavior" are not in the public documentation:
+they were seen in the shipped client during the design of D12 and are not
+re-verified by a session. The install version requirements were
 checked against the release notes for
 [2.1.275](https://github.com/anthropics/claude-code/releases/tag/v2.1.275) and
 [2.1.292](https://github.com/anthropics/claude-code/releases/tag/v2.1.292).
 
 - **Layout.** `.claude-plugin/plugin.json`, `hooks/hooks.json` (the file needs a
   top-level `"hooks"` key), `.mcp.json`, `skills/`, `bin/`. A plugin `bin/` is
-  added to the Bash tool's PATH while the plugin is enabled; jam does not rely
-  on it (see D5).
+  added to the Bash tool's PATH while the plugin is enabled, and claude.ai and
+  Cowork do not install a plugin that has one; jam does not rely on it (see D5)
+  and keeps its launcher in `scripts/` instead (D12).
 - **Path variables.** `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` are exported
   to hook processes and MCP stdio servers, but not to commands the model runs
   through the Bash tool. This is why a SessionStart hook has to inject the
@@ -299,12 +444,54 @@ checked against the release notes for
   whole repository (docs, tests, and assets included, under 1 MB for now), and
   uninstalling leaves the cached copy on disk. If the payload grows, move it to
   a subdirectory and point the marketplace entry at it.
+- **Plugin MCP servers (documented).** A plugin declares them in `.mcp.json` at
+  its root as `{"mcpServers": {"<server>": {...}}}`. In a stdio server's
+  `command`, `args`, and `env`, `${CLAUDE_PLUGIN_ROOT}` and
+  `${CLAUDE_PLUGIN_DATA}` are substituted, and both are exported to the server
+  process. Tool names are `mcp__plugin_<plugin>_<server>__<tool>`, with every
+  character outside `A-Z a-z 0-9 _ -` replaced by `_`; jam's are
+  `mcp__plugin_jam_jam__<verb>`. The documentation shows only the wrapped shape;
+  a flat file with the server names at the top level was also accepted in the
+  design pass (unverified), and jam uses the wrapped one.
+- **stdio framing (MCP specification, 2025-11-25).** Messages are delimited by
+  newlines and must not contain embedded newlines; there is no `Content-Length`
+  header. stdout carries protocol messages only, and stderr may carry logs. Client
+  behavior: Claude Code splits at LF and strips a trailing CR.
+- **Protocol version (client behavior).** Claude Code requests `2025-11-25` and
+  accepts a reply of `2025-11-25`, `2025-06-18`, `2025-03-26`, or `2024-11-05`
+  and rejects any other. The lifecycle rule is that a server echoes
+  a requested version it supports and otherwise answers one it supports. jam
+  echoes a requested version from that list, else answers `2025-11-25`, and never
+  answers a version outside it (for example `2026-07-28`).
+- **`server/discover` probe (client behavior).** Before `initialize`, Claude Code
+  sends a `server/discover` request to a disposable second server process, and an
+  unanswered request stalls the connection for up to 60 seconds. jam answers any
+  unknown request that has an id with `-32601` at once. Because of the probe, the
+  server may start twice per session start, so startup, `initialize`,
+  `tools/list`, and unknown methods must do no I/O and create nothing.
+- **Session variables (documented).** `CLAUDE_CODE_SESSION_ID` is set in Bash and
+  PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server
+  subprocesses. For Bash and hooks it matches the hook input's `session_id` and
+  follows `/clear`; an MCP server keeps the id it was started with (the resumed
+  id for `--resume <session-id>`, and possibly the initial startup id for
+  `--continue` or `--resume` without an id). `CLAUDE_JOB_DIR` is set in each
+  background session to that session's jobs directory, and shell commands the
+  session runs inherit it; it is documented for nothing else, so it is absent in
+  a foreground session and not guaranteed to an MCP server.
 
 ## Open verification items
 
 - Peers hold a message for approval when permission modes differ. Which
   permission mode should `spawn` give a worker so that messages flow without
-  a prompt?
+  a prompt? Until this is settled, the entry points do not expose
+  `permission_mode` (D12).
+- Do the four `mcp__plugin_jam_jam__*` tools appear in a real session loaded
+  with `claude --plugin-dir`, and does `list` work there? It needs a session,
+  which the change that added the entry points did not start (D12).
+- Is `claude` on the PATH of a jam MCP server that runs inside a `--bg` worker?
+  Environment variables do not reach workers, and whether the PATH does is
+  unverified. Check it by spawning from a worker, and follow any real spawn with
+  `stop`, `rm`, and a re-list.
 - `claude stop` followed by `claude rm` once printed success while the session
   stayed in `claude agents` as idle; a second stop and rm removed it. It did
   not reproduce in five later runs, and the adapter does not retry: `remove`

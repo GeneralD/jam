@@ -23,6 +23,14 @@ class Spawned:
 
 
 @dataclass(frozen=True)
+class Identity:
+    """Who the calling session is, as the harness environment reports it."""
+
+    session_id: str  # the full session id
+    id: str | None  # the short id, or None when the environment does not carry it
+
+
+@dataclass(frozen=True)
 class Session:
     id: str  # the short id every management command takes
     session_id: str  # the full session id, as hooks report it
