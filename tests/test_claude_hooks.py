@@ -48,6 +48,12 @@ def run(*argv, stdin=None, env=None, stdout=None):
     return Result(code, out.getvalue(), err.getvalue(), alarms)
 
 
+def run_hook(hook, stdin=b"{}"):
+    """A hook that is not in the table, run through `main` under the name `probe`."""
+    with mock.patch.dict(hooks.HOOKS, {"probe": hook}):
+        return run("probe", stdin=stdin)
+
+
 def context_of(result):
     """The notice text of a result that carries exactly one envelope line."""
     if not (result.out.endswith("\n") and result.out.count("\n") == 1):
@@ -73,12 +79,34 @@ class DispatchTest(unittest.TestCase):
                 result = run(*argv)
                 self.assertEqual((result.code, result.out, result.err, result.alarms), (0, "", "", []))
 
-    def test_the_table_holds_exactly_the_two_hooks_of_this_change(self):
-        self.assertEqual(sorted(hooks.HOOKS), ["notice", "prune"])
+    def test_the_table_holds_exactly_the_three_hooks(self):
+        self.assertEqual(sorted(hooks.HOOKS), ["guard", "notice", "prune"])
 
     def test_each_hook_arms_its_own_alarm_and_cancels_it_at_the_end(self):
         self.assertEqual(run("notice").alarms, [3, 0])
         self.assertEqual(run("prune").alarms, [2, 0])
+        self.assertEqual(run("guard").alarms, [2, 0])
+
+    def test_the_session_start_hooks_keep_the_session_start_envelope_and_the_default_cap_and_the_guard_has_its_own(self):
+        hook_io = lazy("jam.harness.hook_io")
+        for name in ("notice", "prune"):
+            self.assertEqual((hooks.HOOKS[name].envelope, hooks.HOOKS[name].stdin_cap), (hook_io.hook_output, hook_io.MAX_STDIN))
+        self.assertEqual((hooks.HOOKS["guard"].envelope, hooks.HOOKS["guard"].stdin_cap), (hook_io.denial_output, hook_io.MAX_EDIT_STDIN))
+
+    def test_a_hook_built_with_two_fields_gets_the_session_start_envelope_and_the_default_cap(self):
+        hook = hooks.Hook(lambda payload, env: "text", 3)
+        self.assertEqual(json.loads(run_hook(hook).out)["hookSpecificOutput"]["hookEventName"], "SessionStart")
+
+    def test_the_text_of_a_handler_goes_through_the_envelope_of_its_own_hook(self):
+        hook = hooks.Hook(lambda payload, env: "text", 3, envelope=lambda text: "<" + text + ">", stdin_cap=10)
+        self.assertEqual(run_hook(hook).out, "<text>\n")
+
+    def test_a_hook_reads_no_more_of_stdin_than_its_own_cap(self):
+        seen = []
+        hook = hooks.Hook(lambda payload, env: seen.append(payload), 3, stdin_cap=10)
+        run_hook(hook, stdin=b'{"a":"' + b"x" * 20 + b'"}')
+        run_hook(hook, stdin=b'{"a":1}')
+        self.assertEqual(seen, [{}, {"a": 1}])
 
 
 # stdin the notice must survive: it is printed whenever the handler runs to completion, whatever the payload (D13, "Fail open").
@@ -131,7 +159,7 @@ class FailOpenTest(unittest.TestCase):
                 self.assertEqual(result.alarms, [3, 0])
 
     def test_the_exit_code_is_never_two_the_blocking_one(self):
-        for argv in (("notice",), ("prune",), ("bogus",), ()):
+        for argv in (("notice",), ("prune",), ("guard",), ("bogus",), ()):
             for stdin in BAD_STDIN.values():
                 self.assertEqual(run(*argv, stdin=stdin).code, 0)
 
@@ -257,7 +285,7 @@ class PluginRootTest(unittest.TestCase):
 
 
 class ImportGraphTest(unittest.TestCase):
-    HEAVY = ("argparse", "subprocess", "tempfile", "jam.cli", "jam.compose", "jam.mcp", "jam.operations", "jam.service", "jam.registry")
+    HEAVY = ("argparse", "subprocess", "tempfile", "jam.cli", "jam.compose", "jam.mcp", "jam.operations", "jam.service", "jam.registry", "jam.sweep", "jam.claims", "jam.repos", "jam.files", "jam.guard")
 
     def test_importing_the_hook_entry_loads_none_of_the_heavy_modules(self):
         code = "import sys\nsys.path.insert(0, sys.argv[1])\nimport jam.harness.claude_hooks\nprint(' '.join(n for n in sys.argv[2:] if n in sys.modules))\n"

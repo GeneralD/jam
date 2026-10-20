@@ -141,8 +141,67 @@ class TextTest(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertNotIn(word, text)
 
-    def test_it_does_not_mention_the_delegation_guard_before_the_guard_exists(self):
+    def test_it_does_not_mention_the_delegation_guard_while_the_guard_is_not_registered(self):
         self.assertNotRegex(text_for().lower(), r"guard|deny|denied")
+
+
+# The reason of a denial, spelled out word for word: it is product text that the model reads, so a changed word must fail a test.
+DENY_WHERE = "(/work/other)"
+DENY_REASON = (
+    "This edit targets a different repository {where} than the one this session started in. "
+    "A session started in that repository loads its own CLAUDE.md, rules, skills and hooks, "
+    "so work there is best delegated: call mcp__plugin_jam_jam__spawn with cwd set to that repository root and a complete brief "
+    "(the jam command line in the session notice does the same). "
+    "If a direct edit is really intended, re-issue the same edit and it will go through. "
+    "This is shown once per repository in this session."
+)
+FALLBACK_WHERE = "(the repository containing the file)"
+
+
+class DenyReasonTest(unittest.TestCase):
+    def test_the_reason_for_a_plain_root_is_exact(self):
+        self.assertEqual(notice.deny_reason("/work/other"), DENY_REASON.format(where=DENY_WHERE))
+
+    def test_a_root_that_is_unusable_gives_the_constant_phrase_in_its_place(self):
+        for root in ("", "/a\nb", "/a\rb", "/a\tb", "/a\x00b", "/a\x7fb", "/a\x1fb", "/a\udcffb", "/" + "a" * 200, None, 5, b"/abs", ["/abs"]):
+            with self.subTest(root=repr(root)):
+                self.assertEqual(notice.deny_reason(root), DENY_REASON.format(where=FALLBACK_WHERE))
+
+    def test_a_root_with_a_c1_control_a_line_or_paragraph_separator_or_a_format_character_gives_the_constant_phrase(self):
+        # Unicode controls beyond ASCII: 8-bit terminals honour the C1 ones (U+009B starts an escape sequence), and the separators and bidi marks
+        # can break the line or disguise the path. The categories rejected are Cc, Cf, Zl, Zp and Cs.
+        hostile = ("\x80", "\x85", "\x9b", "\x9f", "\u2028", "\u2029", "\u200b", "\u200f", "\u202a", "\u202e", "\u2066", "\u2069", "\u00ad", "\ufeff", "\U000e0041")
+        for char in hostile:
+            with self.subTest(char=f"U+{ord(char):04X}"):
+                self.assertEqual(notice.deny_reason(f"/work/a{char}b"), DENY_REASON.format(where=FALLBACK_WHERE))
+                self.assertEqual(notice.deny_reason(f"/work/a{char}"), DENY_REASON.format(where=FALLBACK_WHERE))
+
+    def test_a_root_with_spaces_or_letters_of_other_scripts_is_still_named(self):
+        for root in ("/work/my project", "/work/caf\u00e9", "/work/\u00a0x", "/work/\u0416", "/work/\U0001f600"):
+            with self.subTest(root=root):
+                self.assertEqual(notice.deny_reason(root), DENY_REASON.format(where=f"({root})"))
+
+    def test_a_root_of_exactly_two_hundred_characters_is_used_and_one_more_is_not(self):
+        root = "/" + "a" * 199
+        self.assertIn(f"({root})", notice.deny_reason(root))
+        self.assertNotIn("a" * 200, notice.deny_reason(root + "a"))
+
+    def test_a_root_with_braces_or_non_ascii_text_is_inserted_as_it_is(self):
+        for root in ("/work/{other}", "/work/{0}", "/work/%s", "/work/\u65e5\u672c\u8a9e"):
+            with self.subTest(root=root):
+                self.assertEqual(notice.deny_reason(root), DENY_REASON.format(where=f"({root})"))
+
+    def test_the_longest_reason_stays_under_nine_hundred_characters_without_a_control_character(self):
+        for root in ("/" + "a" * 199, "/x", 5):
+            with self.subTest(root=repr(root)):
+                reason = notice.deny_reason(root)
+                self.assertLess(len(reason), 900)
+                self.assertIsNone(re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]", reason))
+
+    def test_the_reason_names_the_spawn_tool_the_plugin_really_has(self):
+        plugin = json.loads((PLUGIN_FILES / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"]
+        (server,) = json.loads((PLUGIN_FILES / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        self.assertIn(f"mcp__plugin_{plugin}_{server}__{operations.OPERATIONS[0].name}", notice.deny_reason("/work/other"))
 
 
 def command_forms(text):

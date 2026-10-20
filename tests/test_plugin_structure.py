@@ -269,7 +269,7 @@ class ModuleBoundaryTest(unittest.TestCase):
             with self.subTest(module=path.relative_to(SRC).as_posix()):
                 self.assertEqual([text for text in string_constants(path.read_text(encoding="utf-8")) if "CLAUDE_" in text], [])
         env_module = (SRC / "harness" / "claude_env.py").read_text(encoding="utf-8")
-        for name in ("CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR"):
+        for name in ("CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "CLAUDE_PROJECT_DIR", "CLAUDE_CONFIG_DIR"):
             self.assertIn(name, string_constants(env_module))
 
 
