@@ -22,6 +22,7 @@ from functools import reduce
 from typing import IO, Any, Callable, Final, Optional
 
 from . import compose, mcp, operations
+from .streams import silenced
 
 PROG: Final = "jam"
 INTERRUPTED: Final = 130  # the shell's status for a command ended by SIGINT
@@ -134,17 +135,6 @@ def utf8(stream: IO[str]) -> IO[str]:
     if reconfigure is not None:
         reconfigure(encoding="utf-8", errors="replace")
     return stream
-
-
-def silenced(stream: IO[str]) -> None:
-    """Point the descriptor of a stream whose reader has gone at /dev/null.
-
-    The write that failed left its text in the buffer, and the interpreter would
-    flush it again at exit, fail again, print a notice and exit with status 120.
-    """
-    with contextlib.suppress(AttributeError, OSError, ValueError):  # a StringIO, a closed file or a bare object has no descriptor to point away
-        with open(os.devnull, "wb") as null:
-            os.dup2(null.fileno(), stream.fileno())
 
 
 def writer(stream: IO[str]) -> Callable[[str], None]:

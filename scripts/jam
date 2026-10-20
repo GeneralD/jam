@@ -13,6 +13,11 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+if sys.argv[1:2] == ["hook"]:  # the platform's hook entry; it must not load the command line
+    from jam.harness.claude_hooks import main as hook_main  # noqa: E402
+
+    sys.exit(hook_main(sys.argv[2:]))
+
 from jam.cli import main  # noqa: E402
 
 sys.exit(main(sys.argv[1:]))

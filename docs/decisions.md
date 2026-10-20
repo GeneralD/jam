@@ -89,10 +89,10 @@ scope.
 
 The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
-(`additionalContext`), so no PATH change is needed. The MCP server and the CLI
-are thin entry points over the same core; their shape is D12. The registry lives
-in the plugin data directory and is disposable (see "Plugin platform facts").
-Its shape is D11.
+(`additionalContext`, D13), so no PATH change is needed. The MCP server and the
+CLI are thin entry points over the same core; their shape is D12. The registry
+lives in the plugin data directory and is disposable (see "Plugin platform
+facts"). Its shape is D11.
 
 ## D6. Automatic delegation guard
 
@@ -185,10 +185,10 @@ Decided on 2026-10-15, from three independent designs reconciled into one.
 - **Sweeping.** By file age only (30 days), not against the harness listing:
   whether foreground sessions appear in `claude agents` is unverified, and a
   listing-based sweep could delete the notes of live sessions the listing does
-  not show. The SessionStart hook is to call `prune`. `remove` exists; whether
-  SessionEnd calls it is left to the hooks work (recommended: no, because a
+  not show. The SessionStart hook calls `prune` on `startup` (D13). `remove`
+  exists but no hook calls it: SessionEnd registers nothing (D13), because a
   stopped session stays in the full listing and a resumed one returns with the
-  same id).
+  same id.
 - **Platform.** macOS and Linux (`fcntl`), local filesystem only. The data
   directory and its subdirectory are created 0700 (the notes 0600), whatever the
   umask, so another local user cannot replace them.
@@ -219,9 +219,8 @@ pass).
   the command; the MCP server takes `CLAUDE_PLUGIN_DATA`, which the platform
   exports to it, so `.mcp.json` passes no data-dir argument. One resolver serves
   both: a non-empty flag, else the variable, else none. The SessionStart notice
-  is to bake the flag into one copy-paste command prefix; that notice belongs to
-  the hooks work and is not shipped yet, so until then a CLI call without the
-  flag runs without a registry (see the degradation below). Rejected:
+  bakes the flag into one copy-paste command prefix (D13); a CLI call without
+  the flag runs without a registry (see the degradation below). Rejected:
   - the variable alone: it does not reach commands the model runs through the
     Bash tool (see "Plugin platform facts"), so the CLI would have no registry;
   - MCP only, with no CLI: no shell fallback when the tools are unavailable;
@@ -282,7 +281,7 @@ pass).
   would add an unrequested bare `jam` command that fails without `--data-dir` and
   contradicts D5's no-PATH rule, and claude.ai and Cowork do not install a plugin
   that has `bin/`. Nothing relies on the executable bit.
-- **`python3 -I`.** Both entry points run the launcher as
+- **`python3 -I`.** Both entry points (and the hooks of D13) run the launcher as
   `python3 -I <plugin root>/scripts/jam`. Isolated mode ignores `PYTHON*`
   variables and the user site and keeps the script's directory off `sys.path`,
   so a stray `json.py` or a hostile `PYTHONPATH` cannot shadow the standard
@@ -299,11 +298,11 @@ pass).
   real `claude --plugin-dir` load, and `claude` being on the PATH of an MCP server
   that runs inside a `--bg` worker. A failure of the second reads "cannot run
   'claude': executable not found"; add a binary override only if it happens.
-- **Deferred.** The SessionStart hook wiring and notice text, the foreign-repo
-  guard (D6), the skill, self-stop refusal in code (the short id is not reliably
-  known over MCP, so the `stop` description warns instead), a `remove` or `prune`
-  verb, and the MCP extras (server instructions, pagination, structured output,
-  cancellation).
+- **Deferred.** The foreign-repo guard (D6), the skill, self-stop refusal in
+  code (the short id is not reliably known over MCP, so the `stop` description
+  warns instead), a `remove` or `prune` verb, and the MCP extras (server
+  instructions, pagination, structured output, cancellation). The SessionStart
+  wiring and the notice text that were deferred here are D13.
 
 - **Interrupts and a vanished reader.** An interrupt ends the command with exit
   130 (the shell's status for SIGINT) and nothing on stderr, because a traceback
@@ -330,6 +329,91 @@ pass).
   (-32700), as strict JSON has none. A known method takes an object for
   `params` or none, and anything else is -32602; an unknown method is -32601
   whatever its `params`.
+
+## D13. Hooks failure contract
+
+Decided on 2026-10-20, from several independent designs reconciled into one.
+The platform facts it relies on (hook timeouts, `async`, the SessionEnd budget,
+the cap on injected context) are the ones recorded under "Plugin platform
+facts" by the design pass; this change did not re-read the hooks reference. Two
+hooks ship, both on SessionStart, both through the launcher as `python3 -I
+"${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook <name>`. The launcher dispatches the
+first argument `hook` before it imports the command line, so `notice` never
+loads the parser, the registry or the service, and a test pins that import
+graph. `prune` imports the registry lazily inside its handler, because it alone
+needs it.
+
+- **`notice`** has no matcher, so it fires again on resume, clear, compact and
+  fork, which also re-injects the notice after a compaction. It prints the text
+  that tells the model how to run jam: `python3 -I <root>/scripts/jam
+  --data-dir <dir> COMMAND`, the four commands, the MCP tool names, the session's
+  own id, and the delegation rationale of D6 without mentioning the guard, which
+  does not exist yet.
+- **`prune`** has the matcher `startup`, because it would otherwise run again on
+  every resume, clear and compact. It calls `Registry.prune` and prints nothing.
+  The registry is unchanged: sweeping stays by file age (D11).
+- **Synchronous, with explicit bounds, and no `async`.** A command hook's
+  default timeout is 600 seconds, so each entry sets its own: 5 seconds for
+  `notice` and 3 for `prune`. Inside the process an alarm (3 and 2 seconds) ends
+  the hook by the default action of SIGALRM before the platform's timeout does;
+  an ignored or a blocked SIGALRM is inherited across exec, so the hook resets
+  the disposition and unblocks the signal first. `async` is not used: the reference lists it with no default
+  stated, says Claude Code does not enforce a timeout on `async` hooks, and says
+  nothing about plugin hooks, so an asynchronous prune could be shown neither to
+  stay out of the way nor to be bounded. Rejected: `async: true` with a longer
+  fallback timeout. A synchronous prune costs one directory scan of one small
+  note per spawned session, once per `startup`.
+- **The notice is pure.** It does no file access at all, reads no environment
+  variable but `CLAUDE_PLUGIN_DATA`, and uses nothing from the payload but the
+  session id (accepted only if it passes the id check). SessionStart blocks the
+  first response, so a stuck disk must not delay it and a bug in `prune` must not
+  cost it. The plugin root is derived from the hook module's own location and
+  pinned equal to the composition root's by a test; no root variable is read.
+  Every path is quoted for a shell and `--data-dir` precedes the command word
+  (D12). A data directory that is relative, longer than 1024 characters or holds a
+  control character is left out, and the notice then says jam keeps no notes; an
+  unusable plugin root makes it say the command line is unavailable and point to
+  the MCP tools. The text is ASCII for ASCII paths, byte-identical for identical
+  inputs (so a re-injection is harmless), well below the platform's cap on
+  injected context, and carries no working directory, transcript path or
+  exception text.
+- **Fail open.** A hook never blocks: it never exits with 2. Every failure it
+  can handle ends in exit 0 and leaves one stderr line that names only the
+  exception type. An unusable payload (empty, not yet written to a non-blocking
+  stdin, not UTF-8, not JSON, not an object, or over 256 KiB) is not a failure:
+  the notice is still printed, without the session id line. Only a crash, the
+  alarm or a stdout that cannot be written leaves no output, and the alarm ends
+  a hung hook by signal, so that exit status is not 0. A failed write to stdout,
+  or to stderr when the crash report cannot be written, whatever its error,
+  points the descriptor at `/dev/null` (the helper the
+  command line shares, `silenced` in `src/jam/streams.py`), so the interpreter's
+  flush at exit cannot fail again and turn exit 0 into 120. A closed stdout or
+  stderr, which Python reports as `None`, is the same kind of failure and exits 0. `prune` swallows `RegistryError`, `InvalidRequest` and
+  `OSError`. An unknown hook name does nothing, and no handler branches on
+  `source`, which may take values not known yet.
+- **The harness package holds all of it.** The notice names Claude Code tool
+  names and CLAUDE.md, and the envelope is Claude Code's, so `notice.py`,
+  `hook_io.py` and `claude_hooks.py` live under `src/jam/harness/`. Only the
+  composition root imports that package from outside it, and a test pins that.
+  Rejected: the text and the envelope in the core, where a later harness would
+  have to work around them.
+- **SessionEnd: no hook.** A test pins the set of declared events to
+  SessionStart, so adding one is a visible change. The hooks reference gives
+  SessionEnd a default timeout of exactly 1.5 seconds, shared by all of its hooks,
+  that a plugin cannot raise (see "Plugin platform facts"), and the install-only
+  rule forbids asking the owner to. It also fires on `clear` and `resume` while
+  the conversation goes on, cannot block, and discards its output. Nothing is the
+  right job for it. Removing the session's note would be wrong, since a stopped
+  session stays in the full listing and a resumed one returns with the same id
+  (D11). Removing guard state would re-arm a deny for a session about to continue
+  (D6). Stale files are swept by age at startup, which is the only cleanup. A
+  hook that does nothing still costs an interpreter start on every exit. A later
+  feature that truly needs exit-time work must use only lock-free single-file
+  operations, stay far below 1.5 seconds, and be a deliberate reviewed change.
+- **Unverified.** No session was started to test this change: the notice
+  reaching the model, the `startup` matcher, and the timings are open (also
+  listed under "Open verification items"). The one owner check is `claude
+  --plugin-dir .` in a trusted directory, not `--bg`.
 
 ## Plugin platform facts
 
@@ -375,12 +459,22 @@ checked against the release notes for
   a lost `spawned` note cannot be rebuilt from the harness. Nothing that must
   outlive an uninstall is stored there.
 - **Hooks.** Plugin hooks behave like settings hooks. `additionalContext` must
-  be nested in `hookSpecificOutput`; at the top level it is silently ignored.
-  A Stop hook can block with `decision: block` but only a limited number of
-  consecutive times (check `stop_hook_active`). SessionEnd has a budget of
-  about 1.5 seconds, so nothing slow may run there: the registry's reads and
-  `remove` take no lock and start no subprocess, and stale notes are swept by
-  age (`prune`) rather than at the end of a session.
+  be nested in `hookSpecificOutput`; at the top level it is silently ignored,
+  and what a hook injects is capped at 10,000 characters. A command hook has a
+  default timeout of 600 seconds, so a plugin hook sets its own. The reference
+  lists `async` as an optional command-hook field with no default stated, says
+  Claude Code does not enforce a timeout on `async` hooks, and says nothing
+  about plugin hooks; jam sets it nowhere (D13). A Stop hook can block with
+  `decision: block` but only a limited number of consecutive times (check
+  `stop_hook_active`). SessionEnd hooks have a default timeout of exactly 1.5
+  seconds, shared by all of them; timeouts set on plugin-provided hooks do not
+  raise it (only a hook timeout in the user's own settings or the user's
+  `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` does). SessionEnd also fires with
+  the reasons `clear` and `resume` while the conversation goes on, so it does
+  not mean the session is over. It cannot block termination and its JSON output
+  is discarded. Not documented: whether it fires when a background worker is
+  stopped with `claude stop`. Stale notes are therefore swept by age at startup
+  (`prune`), never at the end of a session (D13).
 - **Permissions.** A plugin cannot ship `permissions.allow`; only `agent` and
   `subagentStatusLine` are honored from a plugin's `settings`. The documented
   workaround is a `PermissionRequest` hook that allows the plugin's own MCP
@@ -481,6 +575,10 @@ checked against the release notes for
 
 ## Open verification items
 
+- Does a real session loaded with `claude --plugin-dir .`, started in a
+  trusted directory (not `--bg`), receive the notice at SessionStart, and does
+  the `startup`-only prune run once? It needs a session, which the change that
+  added the hooks did not start (D13).
 - Peers hold a message for approval when permission modes differ. Which
   permission mode should `spawn` give a worker so that messages flow without
   a prompt? Until this is settled, the entry points do not expose
