@@ -97,6 +97,15 @@ REJECTED = [
     ("stop", {}, "id"),
     ("stop", {"id": 5}, "id"),
     ("whoami", {"anything": 1}, "anything"),
+    # An unknown key is unknown whatever it holds: a null must not slip past the closed schema.
+    ("spawn", {"cwd": "/work/x", "prompt": "p", "bogus": None}, "bogus"),
+    ("spawn", {"cwd": "/work/x", "prompt": "p", "permission_mode": None}, "permission_mode"),
+    ("list", {"bogus": None}, "bogus"),
+    ("stop", {"id": "aaaa1111", "bogus": None}, "bogus"),
+    ("whoami", {"anything": None}, "anything"),
+    # A null stands in only for an optional parameter, never for a required one.
+    ("stop", {"id": None}, "id"),
+    ("spawn", {"cwd": None, "prompt": "p"}, "cwd"),
     # An unpaired surrogate (a JSON "\ud800" escape) cannot be passed to a subprocess.
     ("spawn", {"cwd": "/work/x", "prompt": "hi \ud800"}, "prompt"),
     ("spawn", {"cwd": "/work/\ud800", "prompt": "p"}, "cwd"),
@@ -159,6 +168,18 @@ class ValidatedTest(unittest.TestCase):
     def test_null_optionals_are_dropped(self):
         self.assertEqual(dict(self.validated("spawn", {"cwd": "/w", "prompt": "p", "name": None})), {"cwd": "/w", "prompt": "p"})
         self.assertEqual(dict(self.validated("list", {"include_exited": None, "cwd": None})), {})
+
+    def test_nulls_for_required_parameters_are_not_dropped(self):
+        for name, arguments, fragment in (("stop", {"id": None}, "id"), ("spawn", {"cwd": "/w", "prompt": None}, "prompt")):
+            with self.subTest(name=name):
+                with self.assertRaises(InvalidRequest) as caught:
+                    self.validated(name, arguments)
+                self.assertIn(f"{fragment} must be a string", str(caught.exception))
+
+    def test_a_null_does_not_hide_an_unknown_key_beside_valid_ones(self):
+        with self.assertRaises(InvalidRequest) as caught:
+            self.validated("list", {"include_exited": None, "cwd": None, "bogus": None})
+        self.assertIn("unknown argument: bogus", str(caught.exception))
 
     def test_rejected_arguments_raise_invalid_request_naming_the_problem(self):
         for name, arguments, fragment in REJECTED:

@@ -3,15 +3,17 @@
 stdout carries exactly one JSON line per command, byte-identical to the MCP tool
 result for the same arguments. A failure is one `jam: ...` line on stderr and
 exit 1; a usage error is exit 2; an interrupt ends the command quietly with 130.
-A reader that has gone away is never an error of the operation. `main` takes its
-environment, streams and runtime builder as arguments, so tests never touch the
-real ones.
+A reader that has gone away is never an error of the operation, nor of --help or
+a usage error: whatever was being printed is dropped, with no traceback and the
+same exit code. `main` takes its environment, streams and runtime builder as
+arguments, so tests never touch the real ones.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import os
 import sys
 import textwrap
@@ -103,12 +105,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parsed(argv: list[str], stdout: IO[str], stderr: IO[str]) -> tuple[Optional[argparse.Namespace], int]:
-    """The parsed arguments, or None with the exit code argparse chose (0 for --help, 2 for a usage error)."""
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    """The parsed arguments, or None with the exit code argparse chose (0 for --help, 2 for a usage error).
+
+    argparse prints into memory and the text goes out afterwards through `emitted`.
+    Printing straight to a stream whose reader has gone raises on Python 3.9, is
+    swallowed on newer versions, and in both leaves text in the buffer for the
+    exit-time flush to fail on.
+    """
+    said, complained = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(said), contextlib.redirect_stderr(complained):
         try:
-            return build_parser().parse_args(argv), 0
+            namespace, code = build_parser().parse_args(argv), 0
         except SystemExit as exit_:
-            return None, exit_.code if isinstance(exit_.code, int) else 2
+            namespace, code = None, exit_.code if isinstance(exit_.code, int) else 2
+    emitted(stdout, said.getvalue())
+    emitted(stderr, complained.getvalue())
+    return namespace, code
 
 
 def arguments_of(op: operations.Operation, namespace: argparse.Namespace) -> dict[str, Any]:
@@ -130,7 +142,7 @@ def silenced(stream: IO[str]) -> None:
     The write that failed left its text in the buffer, and the interpreter would
     flush it again at exit, fail again, print a notice and exit with status 120.
     """
-    with contextlib.suppress(OSError, ValueError):  # a StringIO or a closed file has no descriptor to point away
+    with contextlib.suppress(AttributeError, OSError, ValueError):  # a StringIO, a closed file or a bare object has no descriptor to point away
         with open(os.devnull, "wb") as null:
             os.dup2(null.fileno(), stream.fileno())
 
@@ -149,6 +161,13 @@ def writer(stream: IO[str]) -> Callable[[str], None]:
     return write
 
 
+def emitted(stream: IO[str], text: str) -> None:
+    """Say `text` and flush it; that nobody is left to read it is not an error of whatever was being said."""
+    if text:
+        with contextlib.suppress(BrokenPipeError):
+            writer(stream)(text)
+
+
 def serve(runtime: operations.Runtime, stdin: IO[str], stdout: IO[str]) -> int:
     mcp.serve(runtime, getattr(stdin, "buffer", stdin), writer(stdout), compose.plugin_version())
     return 0
@@ -157,10 +176,9 @@ def serve(runtime: operations.Runtime, stdin: IO[str], stdout: IO[str]) -> int:
 def run(op: operations.Operation, runtime: operations.Runtime, namespace: argparse.Namespace, stdout: IO[str], stderr: IO[str]) -> int:
     outcome = operations.call(runtime, op, arguments_of(op, namespace))
     if outcome.ok:
-        with contextlib.suppress(BrokenPipeError):  # the operation ran; that nobody reads its result is not its failure
-            writer(stdout)(outcome.text + "\n")
+        emitted(stdout, outcome.text + "\n")  # the operation ran; that nobody reads its result is not its failure
         return 0
-    stderr.write(f"{PROG}: {outcome.text}\n")
+    emitted(stderr, f"{PROG}: {outcome.text}\n")
     return 1
 
 

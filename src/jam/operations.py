@@ -164,16 +164,19 @@ def _checked(param: Param, value: object) -> None:
 def validated(op: Operation, arguments: object) -> dict[str, Any]:
     """The arguments to run with, or InvalidRequest naming the first problem.
 
-    Null members count as absent. Whatever the harness checks for itself (a
-    directory that exists, a valid name) stays the harness's to check.
+    Every key must be one the operation accepts, whatever it holds. Then a null
+    for an optional parameter counts as absent; a null for a required one is
+    the wrong type. Whatever the harness checks for itself (a directory that
+    exists, a valid name) stays the harness's to check.
     """
     if not isinstance(arguments, Mapping):
         raise InvalidRequest("arguments must be an object")
-    given = {key: value for key, value in arguments.items() if value is not None}
     names = [param.name for param in op.params]
-    unknown = [key for key in given if key not in names]
+    unknown = [key for key in arguments if key not in names]
     if unknown:
         raise InvalidRequest(f"unknown argument: {', '.join(map(str, unknown))} (accepted: {', '.join(names) or 'none'})")
+    optional = {param.name for param in op.params if not param.required}
+    given = {key: value for key, value in arguments.items() if value is not None or key not in optional}
     missing = [param.name for param in op.params if param.required and param.name not in given]
     if missing:
         raise InvalidRequest(f"missing required argument: {', '.join(missing)}")

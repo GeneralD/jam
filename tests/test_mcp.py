@@ -112,7 +112,7 @@ class MethodTest(unittest.TestCase):
             self.assertEqual(answer(request("initialize", {"protocolVersion": NEWEST}), runtime)["result"]["protocolVersion"], NEWEST)
 
     def test_ids_zero_and_strings_are_echoed_unchanged(self):
-        for id_ in (0, "abc", "", "7", 2**40):
+        for id_ in (0, "abc", "", "7", 2**40, 1.5, -0.25):
             for message in (request("ping", id=id_), request("nonsense", id=id_), tool_call("nope", id=id_)):
                 with self.subTest(id=id_, method=message["method"]):
                     reply = answer(message)
@@ -270,7 +270,6 @@ class EnvelopeTest(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 1, "method": ["ping"]},
             {"jsonrpc": "2.0", "id": None, "method": "ping"},
             {"jsonrpc": "2.0", "id": True, "method": "ping"},
-            {"jsonrpc": "2.0", "id": 1.5, "method": "ping"},
             {"jsonrpc": "2.0", "id": [1], "method": "ping"},
             {"jsonrpc": "2.0", "id": {"a": 1}, "method": "ping"},
         ]

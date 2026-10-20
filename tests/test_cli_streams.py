@@ -10,8 +10,11 @@ import unittest
 
 import support  # noqa: F401  (puts src/ on sys.path)
 
-from test_cli import cli, run_cli, text_stream
+from jam.errors import HarnessError
+
+from test_cli import SPAWN, cli, run_cli, text_stream, unused_build
 from test_operations import identity, operations, raising, runtime_for
+from test_service import FakeHarness
 
 
 PING_LINE = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8") + b"\n"
@@ -64,6 +67,82 @@ class VanishedReaderTest(unittest.TestCase):
         code = cli.main(["list"], env={}, stdin=text_stream(), stdout=stream, stderr=err, build=quiet_build)
         self.assertEqual((code, err.getvalue()), (0, ""))
         stream.flush()
+
+
+class UsagePrintingTest(unittest.TestCase):
+    """--help and a usage error are printed by argparse, outside the operation: a vanished reader is no traceback there either."""
+
+    def stream_without_reader(self):
+        return VanishedReaderTest.stream_without_reader(self)
+
+    def test_help_on_a_vanished_stdout_exits_zero_and_leaves_nothing_to_fail_at_exit(self):
+        for argv in (["--help"], ["spawn", "--help"], ["list", "-h"]):
+            with self.subTest(argv=argv):
+                stream, err = self.stream_without_reader(), io.StringIO()
+                code = cli.main(argv, env={}, stdin=text_stream(), stdout=stream, stderr=err, build=unused_build)
+                self.assertEqual((code, err.getvalue()), (0, ""))
+                stream.flush()  # what the interpreter does at exit
+
+    def test_a_usage_error_on_a_vanished_stderr_exits_two_and_prints_nothing(self):
+        for argv in (["nonsense"], ["spawn"], ["list", "--bogus"], []):
+            with self.subTest(argv=argv):
+                stream, out = self.stream_without_reader(), io.StringIO()
+                code = cli.main(argv, env={}, stdin=text_stream(), stdout=out, stderr=stream, build=unused_build)
+                self.assertEqual((code, out.getvalue()), (2, ""))
+                stream.flush()
+
+    def test_a_failure_line_on_a_vanished_stderr_is_still_exit_one(self):
+        runtime = runtime_for(FakeHarness(spawn_error=HarnessError("boom")))
+        stream, out = self.stream_without_reader(), io.StringIO()
+        code = cli.main([*SPAWN, "p"], env={}, stdin=text_stream(), stdout=out, stderr=stream, build=lambda *args, **kwargs: runtime)
+        self.assertEqual((code, out.getvalue()), (1, ""))
+        stream.flush()
+
+
+class Unwritable(io.StringIO):
+    """A stream whose every write fails the way a closed pipe does."""
+
+    def write(self, text):
+        raise BrokenPipeError
+
+
+class Bare:
+    """The least a stream needs: a write that fails like a closed pipe, a flush, and no file descriptor."""
+
+    def write(self, text):
+        raise BrokenPipeError
+
+    def flush(self):
+        pass
+
+
+class FailingWriteTest(unittest.TestCase):
+    def test_help_whose_write_raises_broken_pipe_exits_zero_without_a_traceback(self):
+        for argv in (["--help"], ["spawn", "--help"]):
+            with self.subTest(argv=argv):
+                err = io.StringIO()
+                code = cli.main(argv, env={}, stdin=text_stream(), stdout=Unwritable(), stderr=err, build=unused_build)
+                self.assertEqual((code, err.getvalue()), (0, ""))
+
+    def test_a_usage_error_whose_write_raises_broken_pipe_exits_two_without_a_traceback(self):
+        for argv in (["nonsense"], ["spawn"]):
+            with self.subTest(argv=argv):
+                out = io.StringIO()
+                code = cli.main(argv, env={}, stdin=text_stream(), stdout=out, stderr=Unwritable(), build=unused_build)
+                self.assertEqual((code, out.getvalue()), (2, ""))
+
+    def test_a_stream_with_no_descriptor_to_point_away_is_dropped_the_same_way(self):
+        err = io.StringIO()
+        self.assertEqual(cli.main(["--help"], env={}, stdin=text_stream(), stdout=Bare(), stderr=err, build=unused_build), 0)
+        self.assertEqual(err.getvalue(), "")
+
+    def test_help_and_usage_still_reach_a_reader_that_is_there(self):
+        code, out, err = run_cli(["--help"])
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("usage: jam", out)
+        code, out, err = run_cli(["nonsense"])
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("jam: usage error:", err)
 
 
 class Interrupting:

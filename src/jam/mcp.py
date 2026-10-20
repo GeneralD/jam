@@ -9,6 +9,7 @@ session start. Execution is serial; the client is the trusted parent process.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Iterable
 from typing import Any, Final, Optional, Union
 
@@ -22,9 +23,9 @@ PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR =
 class Rejected(Exception):
     """A protocol-level failure, answered as a JSON-RPC error. Failures inside a tool are results instead."""
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, request_id: object = None):
         super().__init__(message)
-        self.code, self.message = code, message
+        self.code, self.message, self.request_id = code, message, request_id
 
 
 def decoded(raw: Union[bytes, str]) -> str:
@@ -34,18 +35,35 @@ def decoded(raw: Union[bytes, str]) -> str:
         raise Rejected(PARSE_ERROR, "Parse error") from None
 
 
+def refused_constant(name: str) -> object:
+    """What `json.loads` calls for NaN, Infinity and -Infinity, which strict JSON does not have."""
+    raise ValueError(name)
+
+
 def parsed(text: str) -> object:
     try:
-        return json.loads(text)
+        return json.loads(text, parse_constant=refused_constant)
     except (ValueError, RecursionError):
         raise Rejected(PARSE_ERROR, "Parse error") from None
 
 
-def envelope(raw: Union[bytes, str]) -> Optional[tuple[Union[str, int], str, object]]:
+def valid_id(value: object) -> bool:
+    """A request id is a string or a number: not null, not a boolean, not a container, and not a number JSON cannot write."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, float):
+        return math.isfinite(value)  # `1e999` is legal JSON that reads as inf, and inf has no JSON form to echo
+    return isinstance(value, (str, int))
+
+
+def envelope(raw: Union[bytes, str]) -> Optional[tuple[Union[str, int, float], str, object]]:
     """(id, method, params) of a request, or None for what is never answered.
 
-    Never answered: blank lines, client responses, and notifications (no `id`
-    member), whatever their method.
+    The message must be an object whose `jsonrpc` is exactly "2.0"; that is
+    checked before anything else is read from it. Then never answered: blank
+    lines, client responses (a `result` or `error`, no `method`), and
+    notifications (no `id` member), whatever their method. An absent `params`
+    comes back as `{}`; a present one comes back as it is, so null stays wrong.
     """
     text = decoded(raw)
     if not text.strip():
@@ -53,6 +71,9 @@ def envelope(raw: Union[bytes, str]) -> Optional[tuple[Union[str, int], str, obj
     message = parsed(text)
     if not isinstance(message, dict):
         raise Rejected(INVALID_REQUEST, "Invalid Request")
+    if message.get("jsonrpc") != "2.0":
+        # The client may be waiting on its id, so a readable one is echoed.
+        raise Rejected(INVALID_REQUEST, "Invalid Request", message["id"] if valid_id(message.get("id")) else None)
     if "method" not in message:
         if "result" in message or "error" in message:
             return None
@@ -62,14 +83,14 @@ def envelope(raw: Union[bytes, str]) -> Optional[tuple[Union[str, int], str, obj
     if "id" not in message:
         return None
     request_id = message["id"]
-    if isinstance(request_id, bool) or not isinstance(request_id, (str, int)):
+    if not valid_id(request_id):
         raise Rejected(INVALID_REQUEST, "Invalid Request")
-    return request_id, message["method"], message.get("params")
+    return request_id, message["method"], message.get("params", {})
 
 
-def initialized(params: object, version: str) -> dict[str, Any]:
+def initialized(params: dict[str, Any], version: str) -> dict[str, Any]:
     """Echo the client's protocol version when it is a supported one, else offer the newest."""
-    requested = params.get("protocolVersion") if isinstance(params, dict) else None
+    requested = params.get("protocolVersion")
     return {
         "protocolVersion": requested if requested in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
         "capabilities": {"tools": {}},
@@ -81,9 +102,9 @@ def tool(op: operations.Operation) -> dict[str, Any]:
     return {"name": op.name, "description": op.description, "inputSchema": operations.input_schema(op)}
 
 
-def tool_result(runtime: operations.Runtime, params: object) -> dict[str, Any]:
+def tool_result(runtime: operations.Runtime, params: dict[str, Any]) -> dict[str, Any]:
     """Run one tool. An error inside a known tool is a result with isError, never a protocol error."""
-    if not isinstance(params, dict) or not isinstance(params.get("name"), str):
+    if not isinstance(params.get("name"), str):
         raise Rejected(INVALID_PARAMS, "Invalid params")
     op = operations.lookup(params["name"])
     arguments = params.get("arguments", {})
@@ -93,16 +114,22 @@ def tool_result(runtime: operations.Runtime, params: object) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": outcome.text}], "isError": not outcome.ok}
 
 
+# The methods served, each as (runtime, params, version) -> result. Every one takes an object for params, or none.
+HANDLERS: Final = {
+    "initialize": lambda runtime, params, version: initialized(params, version),
+    "ping": lambda runtime, params, version: {},
+    "tools/list": lambda runtime, params, version: {"tools": [tool(op) for op in operations.OPERATIONS]},
+    "tools/call": lambda runtime, params, version: tool_result(runtime, params),
+}
+
+
 def result_for(runtime: operations.Runtime, method: str, params: object, version: str) -> dict[str, Any]:
-    if method == "initialize":
-        return initialized(params, version)
-    if method == "ping":
-        return {}
-    if method == "tools/list":
-        return {"tools": [tool(op) for op in operations.OPERATIONS]}
-    if method == "tools/call":
-        return tool_result(runtime, params)
-    raise Rejected(METHOD_NOT_FOUND, "Method not found")
+    handler = HANDLERS.get(method)
+    if handler is None:
+        raise Rejected(METHOD_NOT_FOUND, "Method not found")
+    if not isinstance(params, dict):
+        raise Rejected(INVALID_PARAMS, "Invalid params")
+    return handler(runtime, params, version)
 
 
 def reply(request_id: object, **body: object) -> str:
@@ -115,7 +142,7 @@ def handle_line(runtime: operations.Runtime, raw: Union[bytes, str], version: st
     try:
         request = envelope(raw)
     except Rejected as bad:
-        return reply(None, error={"code": bad.code, "message": bad.message})
+        return reply(bad.request_id, error={"code": bad.code, "message": bad.message})
     if request is None:
         return None
     request_id, method, params = request

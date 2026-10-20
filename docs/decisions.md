@@ -238,6 +238,9 @@ pass).
   returns its id, `list` still returns its rows, and `stop` and `whoami` never
   touch the registry. Nothing is created at startup or at construction, because
   the platform may start the MCP server more than once per session start.
+  An empty listing reads no notes, so it reports no `problem` even when the
+  registry is unavailable; the first `spawn` names the reason.
+
 - **Errors: `isError` for the tool, protocol errors for the envelope.** A failure
   inside a known tool is a tool result with `isError: true`, so the model reads
   it and can react; the MCP specification reserves protocol errors for a
@@ -307,12 +310,26 @@ pass).
   would only add paths. A reader that has gone away (a broken pipe) is never an
   operation failure: the stream's descriptor is pointed at `/dev/null`, the MCP
   server ends quietly, and a one-shot command exits 0. The write still raises, so
-  the server loop stops.
+  the server loop stops. The same holds for `--help` and a usage error, which
+  argparse prints into memory and the CLI then writes through the same guarded
+  path: help still exits 0 and a usage error still exits 2, with no traceback and
+  no text left in a buffer for the exit-time flush to fail on.
 - **Argument checks.** A string that cannot be passed on, such as an unpaired
   surrogate (JSON can carry one; a command line cannot), is an invalid request,
   checked with `os.fsencode`. A usage error shows the failing command's own usage
   line, not the root one. The CLI spells the flags as `--include-exited` and the
   MCP schema as `include_exited`; both spellings come from the one table.
+  Every key must be one the operation accepts, whatever it holds; only then does
+  a null for an optional parameter count as absent, and a null for a required one
+  is the wrong type.
+- **Envelope checks.** A line is answered only when it is a JSON object whose
+  `jsonrpc` is exactly "2.0"; anything else is -32600, with the request's `id`
+  echoed when it is a valid one (a string or a finite number, never null, a
+  boolean or a container) and null otherwise. Only then are client responses
+  and notifications ignored. NaN, Infinity and -Infinity are parse errors
+  (-32700), as strict JSON has none. A known method takes an object for
+  `params` or none, and anything else is -32602; an unknown method is -32601
+  whatever its `params`.
 
 ## Plugin platform facts
 
