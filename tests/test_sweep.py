@@ -34,6 +34,41 @@ def ticking(step=1.0):
     return lambda: next(counter) * step
 
 
+class Watched:
+    """Wraps what `os.scandir` returns and calls `before(asked)` ahead of each entry the caller asks for, the one that finds the end included."""
+
+    def __init__(self, scan, before):
+        self.scan, self.before, self.asked = scan, before, 0
+
+    def __enter__(self):
+        self.scan.__enter__()
+        return self
+
+    def __exit__(self, *error):
+        return self.scan.__exit__(*error)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.asked += 1
+        self.before(self.asked)
+        return next(self.scan)
+
+
+@contextlib.contextmanager
+def scandir_watched(before=lambda asked: None):
+    """Replace `os.scandir` for the sweep by a wrapper around the real one; yields the list of wrappers made, one per directory opened."""
+    real, made = os.scandir, []
+
+    def scandir(path):
+        made.append(Watched(real(path), before))
+        return made[-1]
+
+    with mock.patch("jam.sweep.os.scandir", scandir):
+        yield made
+
+
 class SweepTestCase(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp()).resolve()
@@ -111,6 +146,25 @@ class SelectionTest(SweepTestCase):
         self.assertTrue(path.exists())
 
 
+class LinkedDirectoryTest(SweepTestCase):
+    def test_a_directory_that_is_a_link_to_a_directory_is_nothing_to_sweep(self):
+        real = self.root / "real"
+        real.mkdir()
+        stale = real / "old-stale"
+        stale.write_bytes(b"x")
+        os.utime(stale, (NOW - 90 * DAY, NOW - 90 * DAY))
+        link = self.root / "link"
+        link.symlink_to(real)
+        rest = (accept_old_style, 30 * DAY, NOW, 10, FOREVER)
+        self.assertEqual(sweep.swept(str(link), *rest), 0)
+        self.assertTrue(stale.exists())
+        self.assertEqual(sweep.swept(str(real), *rest), 1)  # the same file, reached without the link
+
+    def test_a_link_to_nothing_is_nothing_to_sweep(self):
+        (self.root / "link").symlink_to(self.root / "nowhere")
+        self.assertEqual(sweep.swept(str(self.root / "link"), accept_old_style, 30 * DAY, NOW, 10, FOREVER), 0)
+
+
 class BoundTest(SweepTestCase):
     def test_the_entry_cap_limits_how_many_entries_are_looked_at(self):
         for number in range(10):
@@ -136,6 +190,27 @@ class BoundTest(SweepTestCase):
         self.file("old-a", 90)
         self.assertEqual(self.swept(deadline=0.0, clock=lambda: 5.0), 0)
         self.assertEqual(self.names(), ["old-a"])
+
+    def test_the_deadline_is_checked_before_each_entry_is_taken_from_the_directory_and_not_after_a_whole_listing(self):
+        for number in range(50):
+            self.file(f"keep-{number}", 90)  # none is accepted: only how far the directory is read matters
+        with scandir_watched() as made:
+            self.assertEqual(self.swept(deadline=3.0, clock=ticking()), 0)
+        self.assertEqual([scan.asked for scan in made], [3])
+
+    def test_a_deadline_that_has_passed_reads_no_entry_at_all(self):
+        for number in range(5):
+            self.file(f"old-{number}", 90)
+        with scandir_watched() as made:
+            self.assertEqual(self.swept(deadline=0.0, clock=lambda: 5.0), 0)
+        self.assertEqual([scan.asked for scan in made], [0])
+
+    def test_the_cap_stops_the_reading_at_the_cap_and_does_not_ask_for_one_more(self):
+        for number in range(10):
+            self.file(f"keep-{number}", 90)
+        with scandir_watched() as made:
+            self.swept(limit=4)
+        self.assertEqual([scan.asked for scan in made], [4])
 
     def test_by_default_the_deadline_is_judged_on_the_monotonic_clock(self):
         self.file("old-a", 90)
@@ -186,6 +261,19 @@ class FailureTest(SweepTestCase):
             self.assertEqual(self.swept(), 0)
         self.assertEqual(unlink.call_count, 1)
         self.assertEqual(len(self.names()), 3)
+
+    def test_an_error_while_the_directory_is_being_read_ends_the_sweep_with_what_was_done_so_far(self):
+        for number in range(5):
+            self.file(f"old-{number}", 90)
+
+        def fail_on_the_third(asked):
+            if asked == 3:
+                raise PermissionError(errno.EACCES, "Permission denied")
+
+        with scandir_watched(fail_on_the_third) as made:
+            self.assertEqual(self.swept(), 2)
+        self.assertEqual(len(self.names()), 3)
+        self.assertEqual([scan.asked for scan in made], [3])
 
     def test_an_error_while_reading_an_entry_stops_the_sweep_quietly_and_does_not_just_skip_that_entry(self):
         class Unstatable:

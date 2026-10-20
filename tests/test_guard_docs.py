@@ -45,6 +45,17 @@ class DecisionsTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d14)
 
+    def test_d14_status_and_the_shape_of_the_work_both_say_registration_waits_for_the_writers_of_the_marks_too(self):
+        # Without the writers no session carries a mark, so a worker that jam starts would be denied like any other session.
+        d14 = section(DECISIONS, "D14.")
+        places = {"status": flat(d14.split("\n- **Event and entry.**")[0]), "shape of the work": flat(d14.split("Shape of the work:")[1])}
+        for name, text in places.items():
+            with self.subTest(place=name):
+                self.assertIn("waits for both the", text)
+                self.assertIn("the change that writes the spawn tickets and the `worker.<id>` marks", text)
+                self.assertIn("a worker jam starts would be denied like any other session", text)
+        self.assertIn("live checks", places["status"])
+
     def test_d6_hands_loop_protection_to_d14_instead_of_calling_it_undecided(self):
         d6 = flat(section(DECISIONS, "D6."))
         self.assertIn("D14 (accepted on 2026-10-20) settles the mechanism", d6)
@@ -91,23 +102,65 @@ class StatementsTest(unittest.TestCase):
     def test_d13_counts_the_sweep_of_the_guards_state_in_the_cost_of_a_synchronous_prune(self):
         self.assertIn("plus the sweep of the guard's state", flat(section(DECISIONS, "D13.")))
 
+    def test_d14_says_the_start_directory_is_no_exclusion_and_a_nested_repository_is_foreign_wherever_the_session_started(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertNotIn("equal to or below the start directory", d14)
+        self.assertIn("The start directory is not an exclusion", d14)
+        self.assertIn("one nested below the start directory included (D14-6), is foreign", d14)
+        self.assertIn("the `.git` walks of step 7 are paid by every edit that reaches it", d14)
+        self.assertNotIn("so the costly ones happen only for an edit that would be denied.", d14)
+
+    def test_d14_6_covers_every_repository_nested_below_the_start_directory_and_names_the_alternative_that_brings_the_shortcut_back(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn("any repository nested below the start directory", d14)
+        self.assertIn("would bring back a shortcut for the start directory", d14)
+
+    def test_d14_says_the_targets_own_repository_decides_what_is_ignored_and_an_enclosing_one_does_not(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn("git answers for the target's own repository, so an enclosing repository's ignore rules do not count", d14)
+        self.assertIn("unless that repository's own ignore rules, or the user's global excludes, cover the path", d14)
+        self.assertNotIn("started, unless git says the path is ignored.", d14)
+
+    def test_d6_excludes_the_start_directorys_own_repository_and_not_the_start_directory(self):
+        d6 = flat(section(DECISIONS, "D6."))
+        self.assertIn("the start directory's own repository", d6)
+        self.assertIn("a repository nested below the start directory is not, see D14-6", d6)
+        self.assertNotIn("the start directory, non-git paths", d6)
+
+    def test_d14_and_d11_say_a_link_in_place_of_the_state_directory_is_refused_and_the_gap_after_the_check_is_accepted(self):
+        for title, directory in (("D14.", "`guard-v1`"), ("D11.", "`sessions-v1`")):
+            text = flat(section(DECISIONS, title))
+            with self.subTest(decision=title):
+                self.assertIn(f"{directory} must be a real directory", text)
+                self.assertEqual(text.count("time of check to time of use"), 1)
+                self.assertIn("only the same user can plant a link in the user's own plugin data directory", text)
+        self.assertIn("raise `RegistryError` rather than go through one", flat(section(DECISIONS, "D11.")))
+
     def test_the_source_comments_that_were_corrected_stay_corrected(self):
         sources = {
-            "src/jam/harness/notice.py": ("the model itself named a prefix of", None),
-            "src/jam/harness/claude_hooks.py": ("before the platform's timeout in hooks/hooks.json", "which has no entry there yet"),
-            "src/jam/guard.py": (None, "The exception is D14-2"),
+            "src/jam/harness/notice.py": (["the model itself named a prefix of"], []),
+            "src/jam/harness/claude_hooks.py": (["before the platform's timeout in hooks/hooks.json"], ["which has no entry there yet"]),
+            "src/jam/guard.py": (
+                ["the target is not inside the start directory", "(reading `.git` entries, asking git, writing claims) are reached only by"],
+                ["The exception is D14-2", "the target is not inside the configuration directory (D14-3)", "paid by every edit that gets that far"],
+            ),
+            "src/jam/claims.py": (["One lstat; written by other code."], ["is not a real directory"]),
         }
         for name, (gone, present) in sources.items():
             text = flat((ROOT / name).read_text(encoding="utf-8"))
             with self.subTest(source=name):
-                self.assertTrue(gone is None or gone not in text)
-                self.assertTrue(present is None or present in text)
+                self.assertTrue(all(phrase not in text for phrase in gone), gone)
+                self.assertTrue(all(phrase in text for phrase in present), present)
 
 
 class ReadmeTest(unittest.TestCase):
     def test_the_status_says_the_guard_core_exists_but_is_not_registered(self):
         status = flat(section(README, "Status"))
         self.assertIn("core of the delegation guard exists and is tested, but it is not registered", status)
+
+    def test_the_status_says_registration_waits_for_the_live_checks_and_for_the_change_that_marks_the_sessions_jam_starts(self):
+        status = flat(section(README, "Status"))
+        self.assertIn("registering it waits for live checks in real sessions, and for the change that marks the sessions jam starts", status)
 
     def test_no_document_says_the_guard_does_not_exist(self):
         for name, text in (("README.md", README), ("docs/decisions.md", DECISIONS)):

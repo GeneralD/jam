@@ -178,8 +178,8 @@ class BoundaryTest(unittest.TestCase):
 CORE_IMPORTS = {
     "files.py": set(),
     "repos.py": {"jam.files", "jam.files.read_small"},
-    "claims.py": {"jam.files", "jam.files.read_small", "jam.session", "jam.session.ID_PATTERN", "jam.session.is_id"},
-    "sweep.py": {"jam.registry", "jam.registry.expired"},
+    "claims.py": {"jam.files", "jam.files.read_small", "jam.files.real_directory", "jam.session", "jam.session.ID_PATTERN", "jam.session.is_id"},
+    "sweep.py": {"jam.files", "jam.files.real_directory", "jam.registry", "jam.registry.expired"},
     "guard.py": {"jam.repos", "jam.repos.Repo", "jam.session", "jam.session.is_id"},
 }
 # Modules a core module may only import inside the function that needs them: they cost start-up time on the hot path.

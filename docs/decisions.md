@@ -98,8 +98,9 @@ facts"). Its shape is D11.
 
 A PreToolUse hook on Edit, Write, MultiEdit, and NotebookEdit fires when the
 target file is in a repository other than the one the session started in
-(worktrees of the same repository, the start directory, non-git paths, and
-gitignored files are excluded). It denies once per (session, repository) with a
+(worktrees of the same repository, the start directory's own repository, non-git
+paths, and gitignored files are excluded; a repository nested below the start
+directory is not, see D14-6). It denies once per (session, repository) with a
 reason pointing to jam delegation; the re-issued edit passes. Rationale: relying
 on the model to remember to use the tool did not work in a comparable
 canvas-based setup, while a hook fires on the event itself. Not forced on every
@@ -192,6 +193,13 @@ Decided on 2026-10-15, from three independent designs reconciled into one.
 - **Platform.** macOS and Linux (`fcntl`), local filesystem only. The data
   directory and its subdirectory are created 0700 (the notes 0600), whatever the
   umask, so another local user cannot replace them.
+- **Links.** `sessions-v1` must be a real directory, not a link: `update`,
+  `record`, `remove` and `prune` raise `RegistryError` rather than go through
+  one, while a directory that is merely absent is still "no note" and "nothing to
+  prune". The data directory above it belongs to the platform and is not checked.
+  The check is one `lstat` before the use, and the gap between the two (time of
+  check to time of use) is accepted, since only the same user can plant a link in
+  the user's own plugin data directory.
 - **Not stored, on purpose.** The spawner's id (no reader, and nothing can write
   it yet), the working directory, the full session id, and timestamps (the
   file's modification time is the clock for `prune`). Each is added by the change
@@ -438,8 +446,11 @@ hold their defaults until the owner revises them. The core of the guard is
 implemented and tested, and it is **not registered**: `hooks/hooks.json`
 declares no PreToolUse entry, so no session behaves differently. It is
 reachable only as `python3 -I scripts/jam hook guard`, and a test pins that
-nothing in `hooks/hooks.json` names it. Registering it waits for the live checks
-under "Unverified". D6 states the intent; this entry is how it works.
+nothing in `hooks/hooks.json` names it. Registering it waits for both the live
+checks under "Unverified" and the change that writes the spawn tickets and the
+`worker.<id>` marks (see "Loop protection"): until that change exists no session
+carries a mark, so a worker jam starts would be denied like any other session.
+D6 states the intent; this entry is how it works.
 
 - **Event and entry.** PreToolUse, matcher `Edit|Write|MultiEdit|NotebookEdit`
   (letters and `|` only, which the platform reads as an exact-name list; never
@@ -469,23 +480,27 @@ under "Unverified". D6 states the intent; this entry is how it works.
   by whoever published it; the length bound and the character filter are what
   keep that text harmless. The rest is a constant.
 - **Decision order,** cheapest first; a step that allows returns before the next
-  runs, so the costly ones happen only for an edit that would be denied. (1) The
-  tool is one of the four (the adapter). (2) The session id is safe in a file
-  name. (3) `worker.<id>` exists: allow. (4) The target path, relative paths
-  joined to the call's working directory, is resolved with its non-existing tail
-  kept, since a Write may create directories. (5) The start directory is
-  `CLAUDE_PROJECT_DIR` when it is absolute, else the record `start.<id>`, else
-  allow; the working directory of the call is never used, because it moves with
-  every `cd`. (6) A target equal to or below the start directory, or below the
-  configuration directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`), is allowed.
+  runs, so the costly ones (the git subprocess and the claims) happen only for
+  an edit that would be denied, while the `.git` walks of step 7 are paid by
+  every edit that reaches it. (1) The tool is one of the four (the adapter). (2)
+  The session id is safe in a file name. (3) `worker.<id>` exists: allow. (4)
+  The target path, relative paths joined to the call's working directory, is
+  resolved with its non-existing tail kept, since a Write may create
+  directories. (5) The start directory is `CLAUDE_PROJECT_DIR` when it is
+  absolute, else the record `start.<id>`, else allow; the working directory of
+  the call is never used, because it moves with every `cd`. (6) A target equal
+  to or below the configuration directory (`CLAUDE_CONFIG_DIR`, else
+  `~/.claude`) is allowed. The start directory is not an exclusion: a repository
+  nested below it must still be told apart from the one the session started in.
   (7) A session that started outside any repository, a target outside any
-  repository, and the same repository (a linked worktree counts as the same)
-  all allow. (8) `denied.<id>.<repo>` exists: allow. (9) `slot.<hour>.19`
-  exists: allow. (10) One `git check-ignore -q` decides; only exit 1 continues,
-  so an ignored path, an error and a timeout all allow. (11) Create the pair
-  claim with `O_EXCL`; losing the race allows. (12) Create an hour slot; none
-  free allows. (13) Print the denial. A crash or the alarm between 11 and 13
-  loses the nudge and can never produce a second one.
+  repository, and the same repository (a linked worktree counts as the same) all
+  allow; any other repository, one nested below the start directory included
+  (D14-6), is foreign. (8) `denied.<id>.<repo>` exists: allow. (9)
+  `slot.<hour>.19` exists: allow. (10) One `git check-ignore -q` decides; only
+  exit 1 continues, so an ignored path, an error and a timeout all allow. (11)
+  Create the pair claim with `O_EXCL`; losing the race allows. (12) Create an
+  hour slot; none free allows. (13) Print the denial. A crash or the alarm
+  between 11 and 13 loses the nudge and can never produce a second one.
 - **Repository identity is read from files, never from git.** From the nearest
   existing directory the walk looks at `.git` in at most 64 directories, the
   start included. A directory is the git directory. A regular file is read at
@@ -504,17 +519,25 @@ under "Unverified". D6 states the intent; this entry is how it works.
   variable plus `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`, with `PATH`
   reduced to its absolute entries, or the platform's default search path when
   none is left: an empty or relative entry is looked up in the child's working
-  directory, which is inside the foreign tree. The user's own
-  git configuration still applies, so their global excludes count. A foreign
-  repository's configuration can name an fsmonitor command, which is why that
-  one is turned off. It runs only on the would-deny path and after the claim
+  directory, which is inside the foreign tree. Running there, git answers for
+  the target's own repository, so an enclosing repository's ignore rules do not
+  count: a nested clone that the superproject ignores is still judged by its
+  own. The user's own git configuration still applies, so their global excludes
+  count. A foreign repository's configuration can name an fsmonitor command,
+  which is why that one is turned off. It runs only on the would-deny path and after the claim
   pre-checks, and the claim is not taken when git says "ignored" or cannot say.
 - **State** lives under `<CLAUDE_PLUGIN_DATA>/guard-v1`, never in the target
   repository, the plugin root or `/tmp`. Directories are 0700 and created one
   level at a time, files 0600, whatever the umask. Everything is disposable and
   keyed by the full hook session id, so a resume keeps it, while `/clear` and a
   fork get a new id and the guard may speak once more per repository. There is
-  no lock, no read-modify-write and no polling.
+  no lock, no read-modify-write and no polling. `guard-v1` must be a real
+  directory, not a link: with a link in its place every claim fails, every reader
+  answers "nothing" and the sweep stands still, so the guard falls quiet instead
+  of writing where the link points. The data directory above it belongs to the
+  platform and is not checked. The check is one `lstat` before the use, and the
+  gap between the two (time of check to time of use) is accepted, since only the
+  same user can plant a link in the user's own plugin data directory.
 
   | File | Content | Written by | Read by |
   |---|---|---|---|
@@ -550,30 +573,30 @@ under "Unverified". D6 states the intent; this entry is how it works.
   `CLAUDE_CONFIG_DIR` and, for the default configuration directory, `HOME`.
 - **Fail open, all of it.** Allow (print nothing, exit 0) on: stdin over 8 MiB,
   not JSON, not an object or wrong-typed fields; a path with NUL, or relative
-  without an absolute working directory; an invalid session id; a data
-  directory that is unset, relative or not creatable; any I/O error in the
-  `.git` walk; a walk over 64 levels; git missing, slow or answering anything
-  but 1; any failed claim; any exception (reported by type only); a broken
-  stdout. The alarm, a missing interpreter and a missing script all end in exit
-  0 through the wrapper. A hook timeout does not: it kills the shell before the
-  wrapper can run, and the platform treats it as a non-blocking failure, so the
-  call goes ahead. The guard never waits on a lock, never sleeps, never reads
-  stdin without a cap, never runs code a foreign repository controls except the
-  one git call above (which finds `git` only through the absolute entries of
-  `PATH`, since an empty or relative entry would resolve inside the foreign
-  tree), never writes into the target repository or the plugin root, and never
-  puts exception text or edit content on stdout.
+  without an absolute working directory; an invalid session id; a data directory
+  that is unset, relative or not creatable; a state directory that is a link;
+  any I/O error in the `.git` walk; a walk over 64 levels; git missing, slow or
+  answering anything but 1; any failed claim; any exception (reported by type
+  only); a broken stdout. The alarm, a missing interpreter and a missing script
+  all end in exit 0 through the wrapper. A hook timeout does not: it kills the
+  shell before the wrapper can run, and the platform treats it as a non-blocking
+  failure, so the call goes ahead. The guard never waits on a lock, never
+  sleeps, never reads stdin without a cap, never runs code a foreign repository
+  controls except the one git call above (which finds `git` only through the
+  absolute entries of `PATH`, since an empty or relative entry would resolve
+  inside the foreign tree), never writes into the target repository or the
+  plugin root, and never puts exception text or edit content on stdout.
 - **Import cost.** The hot path loads only the standard modules the hook already
   needs, plus the guard's own small modules. `argparse`, `subprocess`,
   `tempfile`, `hashlib` and the registry are imported only on the rare paths,
   and a test pins that the allow path loads none of them.
 - **Core and adapter.** The decision (`jam.guard`), the repository identity
-  (`jam.repos`), the claims (`jam.claims`), the sweep and the bounded read are
-  stdlib-only and name no harness; a test pins their imports and that no Claude
-  Code word appears in them. Which tool calls are edits, where the path sits in
-  the call, the variable names and the deny envelope (`hook_io.py`) are in the
-  harness package, which wires the guard itself, as D13 describes for the other
-  hooks.
+  (`jam.repos`), the claims (`jam.claims`), the sweep and the file checks
+  (`jam.files`) are stdlib-only and name no harness; a test pins their imports
+  and that no Claude Code word appears in them. Which tool calls are edits,
+  where the path sits in the call, the variable names and the deny envelope
+  (`hook_io.py`) are in the harness package, which wires the guard itself, as
+  D13 describes for the other hooks.
 - **Unverified, and to be checked in a real session before registration:**
   PreToolUse firing inside a `--bg` worker (inferred from PostToolUse having
   fired there and from the documentation of agent view, not observed); the values
@@ -624,8 +647,14 @@ under "Unverified". D6 states the intent; this entry is how it works.
   5. D14-5, a session that started outside any repository is never denied
      (step 7), because "the repository the session started in" is undefined.
      Alternative: treat every repository as foreign.
-  6. D14-6, submodules: a separate repository (identity is its own git
-     directory). Alternative: part of the superproject.
+  6. D14-6, nested repositories: a submodule, and any repository nested below
+     the start directory (a nested clone, a vendored checkout with its own
+     `.git`), is a separate repository, because identity is its own git
+     directory. It gets the one nudge wherever in the superproject the session
+     started, unless that repository's own ignore rules, or the user's global
+     excludes, cover the path. Alternative: part of the superproject, which
+     would bring back a shortcut for the start directory and make the outcome
+     depend on where the session started.
   7. D14-7, an off switch or a repository allowlist: install-only forbids
      requiring a settings edit, not offering an escape. And whether the notice
      should mention the guard once it is registered (default: no).
@@ -635,7 +664,10 @@ under "Unverified". D6 states the intent; this entry is how it works.
      check of `claude --bg --session-id` in "Open verification items", each real
      spawn followed by `stop`, `rm` and a re-list.
   10. Shape of the work: this core merges without registering anything; the
-      change that registers the hook is separate and waits for the checks above.
+      change that registers the hook is separate and waits for both the checks
+      above and the change that writes the spawn tickets and the `worker.<id>`
+      marks, because without that change a worker jam starts would be denied
+      like any other session.
 
 ## Plugin platform facts
 

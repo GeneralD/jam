@@ -10,6 +10,12 @@ macOS and Linux only (it uses ``fcntl.flock``) and the data directory must be on
 a local filesystem, where ``flock`` is reliable. Only ``update`` takes the lock;
 reads, ``remove`` and ``prune`` never do, so a hook can call them within a tight
 time budget.
+
+The notes directory must be a real directory. A link in its place would carry a
+write, a removal or the age sweep to wherever it points, so every method refuses
+one with a path-free ``RegistryError`` instead (``files.real_directory``). A
+directory that is merely absent is still "no note" and "nothing to prune". The
+data directory above it belongs to the platform and is not checked.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from .errors import InvalidRequest, RegistryError
+from .files import real_directory
 from .session import is_id
 
 SESSIONS_DIR: Final = "sessions-v1"
@@ -80,10 +87,13 @@ class Registry:
     def record(self, key: str) -> Record | None:
         """The note for `key`, or None when there is none, it is damaged, or the key is not an id.
 
-        An unreadable file (permissions, I/O error) is a RegistryError, not an absence.
+        An unreadable file (permissions, I/O error) is a RegistryError, not an
+        absence, and so is a notes directory that is not a real directory: a
+        store that cannot be trusted is not the same as a store with no note in it.
         """
         if not is_id(key):
             return None
+        self._checked("read")
         raw = self._loaded(self._path(key))
         return None if raw is None else Record.from_json(raw)
 
@@ -103,6 +113,8 @@ class Registry:
                 os.makedirs(directory, mode=0o700, exist_ok=True)
         except OSError as exc:
             raise _unavailable("create", exc) from None
+        if not real_directory(self._dir):  # makedirs accepts a link to a directory
+            raise _not_a_directory("write")
         with self._locked():
             data = encoded(change(dict(self._loaded(path) or {})))
             self._written(key, path, data)
@@ -110,6 +122,7 @@ class Registry:
     def remove(self, key: str) -> None:
         """Delete the note if there is one. Takes no lock; a racing update may bring it back, which is harmless."""
         path = self._path(self._valid_key(key))
+        self._checked("remove from")
         try:
             os.unlink(path)
         except FileNotFoundError:
@@ -120,6 +133,7 @@ class Registry:
     def prune(self, max_age: float = STALE_AFTER, now: float | None = None) -> int:
         """Delete notes (and orphaned temp files) older than `max_age`; return how many went."""
         current = time.time() if now is None else now
+        self._checked("scan")
         try:
             with os.scandir(self._dir) as scan:
                 entries = list(scan)
@@ -131,6 +145,11 @@ class Registry:
 
     def _path(self, key: str) -> Path:
         return self._dir / f"{key}.json"
+
+    def _checked(self, action: str) -> None:
+        """Refuse, with a RegistryError, a link or anything else standing where the notes directory should be. A directory that is merely absent passes: the caller meets that as "no note"."""
+        if not real_directory(self._dir) and os.path.lexists(self._dir):
+            raise _not_a_directory(action)
 
     @staticmethod
     def _valid_key(key: str) -> str:
@@ -238,6 +257,11 @@ def _discarded(path: str) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+def _not_a_directory(action: str) -> RegistryError:
+    """A RegistryError for a notes directory that is a link or some other thing than a directory; like the others it names the action and never a path."""
+    return RegistryError(f"cannot {action} the session registry: not a directory")
 
 
 def _unavailable(action: str, exc: OSError) -> RegistryError:

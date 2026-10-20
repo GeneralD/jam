@@ -122,6 +122,28 @@ class SweepTest(PruneGuardTestCase):
         self.assertEqual(self.state.read_text(encoding="utf-8"), "not a directory")
 
 
+class LinkedDirectoryTest(PruneGuardTestCase):
+    """A link in place of a state directory carries no sweep to its target, and the hook still ends quietly with exit 0."""
+
+    def test_a_guard_directory_that_is_a_link_is_not_swept_through(self):
+        outside = self.data / "outside"
+        stale = self.planted(outside, STALE, 90)
+        self.state.symlink_to(outside)
+        result = self.pruned()
+        self.assertEqual((result.code, result.out, result.err), (0, "", ""))
+        self.assertTrue(stale.exists())
+
+    def test_a_registry_directory_that_is_a_link_is_not_pruned_through_and_the_guard_sweep_still_runs(self):
+        outside = self.data / "outside"
+        note = self.planted(outside, "aaaa1111.json", 90)
+        self.sessions.symlink_to(outside)
+        claim = self.planted(self.state, STALE, 31)
+        result = self.pruned()
+        self.assertEqual((result.code, result.out, result.err), (0, "", ""))
+        self.assertTrue(note.exists())
+        self.assertFalse(claim.exists())
+
+
 class WiringTest(PruneGuardTestCase):
     def test_the_sweep_is_handed_the_state_directory_the_claim_predicate_the_thirty_days_the_clock_a_cap_and_a_deadline(self):
         signature = inspect.signature(sweep.swept)  # the real one, before the patch

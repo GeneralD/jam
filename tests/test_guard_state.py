@@ -117,6 +117,23 @@ class RealGitTest(GuardCase):
         self.assertEqual(self.claim_files(), [])
         self.assertDenied(self.write_to(repository / "src" / "index.ts"), repository)
 
+    def test_a_nested_clone_the_superproject_ignores_is_judged_by_its_own_ignore_rules_alone(self):
+        # D14-6: git runs inside the target's repository, so the enclosing repository's ignore rules never count.
+        home = self.root / "home"
+        home.mkdir()
+        top = self.root / "top"
+        nested = top / "vendor" / "lib"
+        nested.mkdir(parents=True)
+        gitrepo.git(home, top, "init", "-q")
+        gitrepo.git(home, nested, "init", "-q")
+        (top / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (nested / ".gitignore").write_text("*.o\n", encoding="utf-8")
+        gitrepo.git(home, top, "check-ignore", "-q", "--", "vendor/notes.md")
+        self.ignored.side_effect = lambda path: real_ignored(path, base_env=gitrepo.home_env(home))
+        self.assertSilent(self.write_to(nested / "build" / "x.o", env={PROJECT_VAR: str(top)}))
+        self.assertEqual(self.claim_files(), [])
+        self.assertDenied(self.write_to(nested / "src" / "x.c", env={PROJECT_VAR: str(top)}), nested)
+
 
 class MemoryLessTest(GuardCase):
     """A hook that cannot remember what it said never speaks."""
@@ -132,6 +149,21 @@ class MemoryLessTest(GuardCase):
     def test_a_data_directory_that_cannot_be_created_is_silent(self):
         self.data.write_text("a file where the directory should be", encoding="utf-8")
         self.assertSilent(self.guarded())
+
+    def test_a_state_directory_that_is_a_link_is_silent_and_nothing_is_created_through_it(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.data.mkdir()
+        self.state.symlink_to(outside)
+        self.assertSilent(self.guarded())
+        self.assertEqual(os.listdir(outside), [])
+
+    def test_a_data_directory_that_is_a_link_is_the_platforms_own_and_the_guard_still_speaks(self):
+        real = self.root / "real-data"
+        real.mkdir()
+        self.data.symlink_to(real)
+        self.assertDenied(self.guarded(), self.other)
+        self.assertEqual(len(os.listdir(real / "guard-v1")), 2)
 
     @unittest.skipIf(os.name != "posix" or os.geteuid() == 0, "a permission bit does not stop root")
     def test_a_data_directory_that_cannot_be_written_is_silent(self):

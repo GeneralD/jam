@@ -111,7 +111,7 @@ class TargetTest(GuardCase):
 
 class StartDirectoryTest(GuardCase):
     def test_the_variable_beats_the_record_when_both_exist_and_differ(self):
-        self.record_start(SESSION_ID, self.other)  # were it used, the edit would be inside the start directory
+        self.record_start(SESSION_ID, self.other)  # were it used, the edit would be in the start repository
         self.assertDenied(self.guarded(), self.other)
 
     def test_the_record_stands_in_when_the_variable_is_unset_empty_or_relative(self):
@@ -140,8 +140,9 @@ class StartDirectoryTest(GuardCase):
         (self.root / "applink").symlink_to(self.app)
         self.assertSilent(self.write_to(self.app / "notes.txt", env={PROJECT_VAR: str(self.root / "applink")}))
 
-    def test_an_edit_inside_the_start_directory_allows_without_asking_git(self):
+    def test_an_edit_in_the_start_directorys_own_repository_allows_without_asking_git(self):
         self.assertSilent(self.write_to(self.app / "src" / "new.ts"))
+        self.assertSilent(self.write_to(self.app / "README.md"))
         self.ignored.assert_not_called()
 
 
@@ -174,6 +175,34 @@ class RepositoryTest(GuardCase):
         (sub / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
         self.assertDenied(self.write_to(top / "README.md", env={PROJECT_VAR: str(sub)}), top)
         self.assertDenied(self.write_to(sub / "lib.c", env={PROJECT_VAR: str(top / "pkg")}), sub)
+
+    def test_a_submodule_is_foreign_to_a_session_that_started_at_the_superproject_root_as_it_is_to_one_that_started_beside_it(self):
+        # D14-6 does not depend on where in the superproject the session started.
+        top = self.plain("top")
+        gitdir = top / ".git" / "modules" / "sub"
+        gitdir.mkdir(parents=True)
+        sub = top / "vendor" / "sub"
+        sub.mkdir(parents=True)
+        (sub / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+        self.assertDenied(self.write_to(sub / "lib.c", env={PROJECT_VAR: str(top)}, session_id=self.fresh()), sub)
+        self.assertDenied(self.write_to(sub / "lib.c", env={PROJECT_VAR: str(top / "pkg")}, session_id=self.fresh()), sub)
+        self.assertSilent(self.write_to(top / "README.md", env={PROJECT_VAR: str(top)}, session_id=self.fresh()))
+
+    def test_a_nested_clone_below_the_start_directory_is_foreign_and_the_rest_of_the_start_repository_is_not(self):
+        nested = self.app / "vendor" / "lib"
+        (nested / ".git").mkdir(parents=True)
+        (self.app / "pkg").mkdir()
+        self.assertDenied(self.write_to(nested / "src" / "x.c", session_id=self.fresh()), nested)
+        self.assertSilent(self.write_to(self.app / "vendor" / "notes.md", session_id=self.fresh()))
+        self.assertSilent(self.write_to(self.app / "src" / "x.c", session_id=self.fresh()))
+        self.assertDenied(self.write_to(nested / "src" / "x.c", env={PROJECT_VAR: str(self.app / "pkg")}, session_id=self.fresh()), nested)
+
+    def test_a_nested_repository_that_git_ignores_stays_quiet_and_burns_no_claim(self):
+        nested = self.app / "vendor" / "lib"
+        (nested / ".git").mkdir(parents=True)
+        self.ignored.return_value = True
+        self.assertSilent(self.write_to(nested / "src" / "x.c"))
+        self.assertEqual(self.claim_files(), [])
 
     def test_an_unreadable_or_damaged_repository_marker_allows(self):
         broken = self.pointer(b"not a pointer", name="broken")

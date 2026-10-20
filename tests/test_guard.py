@@ -25,6 +25,7 @@ SID = "aaaa1111-0000-4000-8000-000000000001"
 OTHER_SID = "bbbb2222-0000-4000-8000-000000000002"
 HOUR = 490000
 APP, OTHER, THIRD = "/work/app", "/work/other", "/work/third"
+NESTED = "/work/app/vendor/sub"
 CONFIG = "/opt/cfg"
 TARGET = "/work/other/src/index.ts"
 # The repositories of the fake file system: root -> identity. The sibling with a shared name prefix is what a bare `startswith` would confuse.
@@ -34,6 +35,7 @@ ROOTS = {
     OTHER: "/work/other/.git",
     THIRD: "/work/third/.git",
     "/work/wt": "/work/app/.git",  # a linked worktree of the first: another root, the same identity
+    NESTED: "/work/app/.git/modules/sub",  # a submodule: below the first, with a git directory of its own
     "/opt/cfg2": "/opt/cfg2/.git",
 }
 
@@ -185,19 +187,8 @@ class StartDirectoryTest(unittest.TestCase):
         self.assertEqual((denial, calls), (None, EVERYTHING[:3]))
 
 
-class ContainmentTest(unittest.TestCase):
-    def test_step_6_an_edit_below_the_start_directory_allows(self):
-        self.assertEqual(decided(edit(project_dir=OTHER)), (None, EVERYTHING[:2] + [("resolved", OTHER)]))
-
-    def test_step_6_an_edit_of_the_start_directory_itself_allows(self):
-        self.assertEqual(decided(edit(target=OTHER, project_dir=OTHER)), (None, [("worker_marked", SID), ("resolved", OTHER), ("resolved", OTHER)]))
-
-    def test_step_6_a_sibling_whose_name_starts_with_the_start_directory_is_not_inside_it(self):
-        denial, _ = decided(edit(target="/work/app2/f.txt"))
-        self.assertEqual(denial, guard.Denial("/work/app2"))
-
-    def test_step_6_a_start_directory_that_is_the_file_system_root_contains_everything(self):
-        self.assertEqual(decided(edit(project_dir="/"))[0], None)
+class ExclusionTest(unittest.TestCase):
+    """Step 6 excludes the configuration directory and nothing else: the start directory is not an exclusion (D14-6)."""
 
     def test_step_6_edits_under_the_config_directory_allow_before_any_repository_is_looked_up(self):
         # D14-3: the config-directory exclusion is this one clause.
@@ -231,10 +222,27 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual((denial, calls[-1]), (None, ("repo_of", "/work/wt/f.txt")))
 
     def test_step_7_repositories_with_different_identities_are_foreign_even_when_one_lies_inside_the_other(self):
-        # D14-6: a submodule is its own repository because identity decides, and this is the only comparison.
-        nested = lambda path: repos.Repo("/work/app/vendor/sub", "/work/app/.git/modules/sub") if path.startswith("/work/app/vendor") else repo_in(path)
-        denial, _ = decided(edit(target="/work/app/vendor/sub/f.txt", project_dir="/work/app/pkg"), repo_of=nested)
-        self.assertEqual(denial, guard.Denial("/work/app/vendor/sub"))
+        # D14-6: a repository nested below the start directory is its own repository because identity decides, wherever the session started.
+        for start in (APP, "/work/app/pkg", "/work/app/vendor"):
+            with self.subTest(start=start):
+                denial, _ = decided(edit(target=NESTED + "/f.txt", project_dir=start))
+                self.assertEqual(denial, guard.Denial(NESTED))
+
+    def test_step_7_the_start_directory_is_no_exclusion_so_an_edit_below_it_is_decided_by_its_repository_alone(self):
+        # The reads are the price of step 7; nothing beyond them runs for an edit in the start directory's own repository.
+        self.assertEqual(decided(edit(project_dir=OTHER)), (None, EVERYTHING[:2] + [("resolved", OTHER), ("resolved", CONFIG), ("repo_of", OTHER), ("repo_of", TARGET)]))
+
+    def test_step_7_an_edit_of_the_start_directory_itself_is_in_its_repository_and_allows(self):
+        calls = [("worker_marked", SID), ("resolved", OTHER), ("resolved", OTHER), ("resolved", CONFIG), ("repo_of", OTHER), ("repo_of", OTHER)]
+        self.assertEqual(decided(edit(target=OTHER, project_dir=OTHER)), (None, calls))
+
+    def test_step_7_a_sibling_whose_name_starts_with_the_start_directory_is_another_repository(self):
+        denial, _ = decided(edit(target="/work/app2/f.txt"))
+        self.assertEqual(denial, guard.Denial("/work/app2"))
+
+    def test_step_7_a_start_directory_that_is_the_file_system_root_is_no_repository_and_allows(self):
+        denial, calls = decided(edit(project_dir="/"))
+        self.assertEqual((denial, calls[-1]), (None, ("repo_of", "/")))
 
     def test_step_7_roots_are_never_compared(self):
         same_identity_other_root = lambda path: repos.Repo("/elsewhere", "/work/app/.git") if path == TARGET else repo_in(path)
@@ -319,6 +327,10 @@ class SequenceTest(unittest.TestCase):
     def test_another_file_of_the_same_repository_passes(self):
         self.assertTrue(self.memory.denied(TARGET))
         self.assertFalse(self.memory.denied("/work/other/docs/readme.md"))
+
+    def test_a_repository_nested_below_the_start_directory_is_denied_once_and_the_start_repository_never(self):
+        nested = f"{NESTED}/f.txt"
+        self.assertEqual([self.memory.denied(nested), self.memory.denied(nested), self.memory.denied(f"{APP}/src/new.ts")], [True, False, False])
 
     def test_a_second_repository_is_denied_once_more(self):
         self.assertEqual([self.memory.denied(TARGET), self.memory.denied("/work/third/f.txt")], [True, True])

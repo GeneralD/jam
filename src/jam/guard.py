@@ -5,18 +5,21 @@ started in. The first such edit of a session is denied, with a reason that point
 to delegation, and the same edit sent again passes (D6, D14).
 
 `decide` takes the steps below in order, cheapest first. A step that lets the edit
-through returns before the next one runs, so the costly ones (reading `.git`
-entries, asking git, writing claims) are reached only by an edit that would
-otherwise be denied. Every read and every write goes through the `Effects` it is
-handed: the live ones are `claims.Claims` and `repos`, wired by the hook adapter,
-and the tests pass fakes that log their calls.
+through returns before the next one runs, so the costly ones (asking git, writing
+claims) are reached only by an edit that would otherwise be denied. The `.git`
+walks of step 7 are paid by every edit that gets that far, since only they can tell
+the repository the session started in from one nested below it. Every read and
+every write goes through the `Effects` it is handed: the live ones are
+`claims.Claims` and `repos`, wired by the hook adapter, and the tests pass fakes
+that log their calls.
 
     2. the session id is usable in a file name
     3. the session was started by jam itself (D14-1)
     4. the target resolves to a place
     5. the start directory is known: the platform's own record, else the session's
-    6. the target is not inside the start directory, nor inside the configuration directory (D14-3)
-    7. the session started in a repository (D14-5), the target is in one, and not the same one (D14-6)
+    6. the target is not inside the configuration directory (D14-3); the start directory is no exclusion
+    7. the session started in a repository (D14-5), the target is in one, and not the same one: a
+       repository nested below the start directory (a submodule, a nested clone) is another one (D14-6)
     8. this session has not been denied for that repository yet
     9. the clock hour still has a free slot (D14-2)
    10. git does not ignore the target
@@ -91,7 +94,7 @@ def _foreign(edit: Edit, fx: Effects) -> Optional[tuple[str, Repo]]:
     if target is None:
         return None
     start = _start_directory(session, edit.project_dir, fx)
-    if start is None or _within(target, start):
+    if start is None:
         return None
     if _in_config_dir(target, edit.config_dir, fx):  # D14-3
         return None
@@ -99,7 +102,7 @@ def _foreign(edit: Edit, fx: Effects) -> Optional[tuple[str, Repo]]:
     if started_in is None:  # D14-5
         return None
     repo = fx.repo_of(target)
-    if repo is None or repo == started_in:  # D14-6: equality is by git directory, so a submodule is its own repository
+    if repo is None or repo == started_in:  # D14-6: equality is by git directory, so a submodule or a clone nested below the start directory is its own repository
         return None
     return target, repo
 

@@ -1,10 +1,14 @@
 """An age sweep for a directory of disposable files: remove the old regular files whose names a predicate accepts.
 
-It never raises for a reason on disk. A directory that is missing or cannot be
-listed has nothing to sweep, an entry that vanishes is skipped, and any other
-error ends the sweep with what it had done so far, because the files are only
-clutter and the next run will try again. Two bounds keep it cheap on a hook's
-tight budget: a cap on how many entries are looked at, and a deadline.
+It never raises for a reason on disk. A directory that is missing, is not a real
+directory (a link in its place would carry the sweep to wherever it points) or
+cannot be listed has nothing to sweep, an entry that vanishes is skipped, and any
+other error, one that strikes while the directory is being read included, ends the
+sweep with what it had done so far, because the files are only clutter and the
+next run will try again. Two bounds keep it cheap on a hook's tight budget: a cap
+on how many entries are looked at, and a deadline that is checked before each
+entry is taken from the directory, so that neither a large directory nor a slow
+one can run past it.
 
 Stdlib only, apart from the age rule it shares with the registry.
 """
@@ -14,10 +18,11 @@ from __future__ import annotations
 import os
 import stat
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from itertools import islice
 from typing import Optional
 
+from .files import real_directory
 from .registry import expired
 
 
@@ -34,27 +39,28 @@ def swept(
 
     `now` is wall-clock time, the one file times are compared with, and a file
     dated in the future never expires. `deadline` is on `clock` (monotonic by
-    default) and is checked before each entry. Links, directories and every other
-    kind of entry are left alone, whatever their name and age.
+    default) and is checked before each entry is taken from the directory. Links,
+    directories and every other kind of entry are left alone, whatever their name
+    and age. The directory itself must be a real one, not a link to one.
     """
+    if not real_directory(directory):  # a missing one has nothing to sweep, and a link is not looked through
+        return 0
     removed = 0
-    for entry in _listed(directory, limit):
-        if clock() >= deadline:
-            break
-        outcome = _removed(entry, accept, max_age, now)
-        if outcome is None:
-            break
-        removed += outcome
+    try:
+        with os.scandir(directory) as scan:
+            for entry in islice(_timely(iter(scan), deadline, clock), limit):
+                outcome = _removed(entry, accept, max_age, now)
+                if outcome is None:
+                    break
+                removed += outcome
+    except OSError:  # the directory cannot be listed, or reading it failed part-way
+        pass
     return removed
 
 
-def _listed(directory: str, limit: int) -> list[os.DirEntry[str]]:
-    """At most `limit` entries of `directory`; none when it cannot be listed."""
-    try:
-        with os.scandir(directory) as scan:
-            return list(islice(scan, limit))
-    except OSError:
-        return []
+def _timely(entries: Iterator[os.DirEntry[str]], deadline: float, clock: Callable[[], float]) -> Iterator[os.DirEntry[str]]:
+    """The entries of `entries`, each asked for only while `clock` reads before `deadline`; one reading per entry asked for."""
+    return iter(lambda: next(entries, None) if clock() < deadline else None, None)
 
 
 def _removed(entry: os.DirEntry[str], accept: Callable[[str], bool], max_age: float, now: float) -> Optional[int]:

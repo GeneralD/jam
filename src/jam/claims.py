@@ -7,9 +7,12 @@ updated. The files are disposable: a missing one only means one more nudge, and
 only the age of a file decides when it is swept (see `is_claim_name`).
 
 Nothing here raises. A data directory that is missing, relative or not writable,
-and an id or key that is not safe in a file name, all answer "no claim" or "no
-record", which the guard reads as "stay quiet": a guard that cannot remember
-what it has said must not speak.
+a state directory that is not a real directory (a link in its place would carry
+every claim and every read to wherever it points), and an id or key that is not
+safe in a file name, all answer "no claim" or "no record", which the guard reads
+as "stay quiet": a guard that cannot remember what it has said must not speak.
+The data directory above the state directory belongs to the platform and is not
+checked; the check that guards the state directory is `files.real_directory`.
 
 macOS and Linux only. Stdlib only and cheap to import: this module is on the path
 of every edit.
@@ -21,7 +24,7 @@ import os
 import re
 from typing import Final, Optional
 
-from .files import read_small
+from .files import read_small, real_directory
 from .session import ID_PATTERN, is_id
 
 STATE_DIR: Final = "guard-v1"
@@ -52,7 +55,7 @@ class Claims:
         self._dir = state_dir(data_dir)
 
     def worker_marked(self, session_id: object) -> bool:
-        """True when the session carries the mark of a session that was started on purpose. One lstat; written by other code."""
+        """True when the session carries the mark of a session that was started on purpose. Two lstats, one of the state directory; written by other code."""
         return self._exists(_named("worker", session_id))
 
     def start_recorded(self, session_id: object) -> Optional[str]:
@@ -62,10 +65,11 @@ class Claims:
         one reads as absent. Written by other code.
         """
         name = _named("start", session_id)
-        if self._dir is None or name is None:
+        directory = None if name is None else self._looked_in()
+        if directory is None or name is None:
             return None
         try:
-            return _path_line(read_small(os.path.join(self._dir, name), MAX_RECORD))
+            return _path_line(read_small(os.path.join(directory, name), MAX_RECORD))
         except OSError:
             return None
 
@@ -91,11 +95,16 @@ class Claims:
         """Take the next free one of the SLOTS_PER_HOUR slots of the clock `hour` (whole hours since the epoch). False when none is free or none can be taken."""
         return self._claimed(_slots(hour))
 
+    def _looked_in(self) -> Optional[str]:
+        """The state directory when there is one and it is a real directory, else None: a link in its place reads as an absence."""
+        return self._dir if self._dir is not None and real_directory(self._dir) else None
+
     def _exists(self, name: Optional[str]) -> bool:
-        if self._dir is None or name is None:
+        directory = None if name is None else self._looked_in()
+        if directory is None or name is None:
             return False
         try:
-            os.lstat(os.path.join(self._dir, name))
+            os.lstat(os.path.join(directory, name))
         except OSError:  # absent, or not to be looked at: either way nothing is known to exist
             return False
         return True
@@ -122,7 +131,7 @@ class Claims:
                 os.makedirs(level, mode=0o700, exist_ok=True)
         except OSError:
             return None
-        return directory
+        return directory if real_directory(directory) else None  # makedirs accepts a link to a directory; claims are never made through one
 
 
 def _named(kind: str, session_id: object) -> Optional[str]:
