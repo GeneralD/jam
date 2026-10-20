@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jam": {
+      "command": "python3",
+      "args": ["-I", "${CLAUDE_PLUGIN_ROOT}/scripts/jam", "mcp"]
+    }
+  }
+}
