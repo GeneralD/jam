@@ -1,20 +1,31 @@
-"""The Claude Code hook entry: `scripts/jam hook <name>`, run by the platform on SessionStart.
+"""The Claude Code hook entry: `scripts/jam hook <name>`, run by the platform.
 
-Fail-open. A hook must never block a session, so it never exits with 2. Every
-failure it can handle ends in exit 0 and leaves only the exception type on
-stderr, and an unusable payload is not a failure: the notice is still printed,
-without the session id. Only a crash, the alarm or a vanished reader leave no
-output, and the alarm ends a hung hook by signal, so that exit status is not 0.
+Fail-open. A hook must never block a session or a tool call, so it never exits
+with 2. Every failure it can handle ends in exit 0 and leaves only the exception
+type on stderr, and an unusable payload is not a failure: the notice is still
+printed, without the session id, and the guard stays silent. Only a crash, the
+alarm or a vanished reader leave no output, and the alarm ends a hung hook by
+signal, so that exit status is not 0.
 
-Two hooks, both synchronous, both bounded by an in-process alarm that goes off
-before the platform's timeout in hooks/hooks.json:
+Three hooks, all synchronous, all bounded by an in-process alarm that goes off
+before the platform's timeout: the one in hooks/hooks.json for `notice` and
+`prune`, and for `guard`, which has no entry there yet, the one its entry will
+declare (a test holds the alarm below it):
 
-- `notice` prints the notice. It does no file access at all, so a stuck disk
-  cannot delay the first response and a bug in `prune` cannot cost the notice.
-- `prune` sweeps stale notes from the registry and prints nothing.
+- `notice` (SessionStart) prints the notice. It does no file access at all, so a
+  stuck disk cannot delay the first response and a bug in `prune` cannot cost
+  the notice.
+- `prune` (SessionStart) sweeps stale notes from the registry, and stale deny
+  claims and hour slots from the guard's state, and prints nothing. A failure in
+  one sweep does not stop the other.
+- `guard` (PreToolUse) denies, once per session and repository, an edit of a
+  file in a repository other than the one the session started in (D6, D14). It
+  is implemented and tested but not registered in hooks/hooks.json, so no
+  session reaches it yet. Allowing prints nothing at all: the normal permission
+  flow stays in force, and the hook never prints an allow, an ask or a defer.
 
-The registry is imported inside `prune`: its modules are the slow part of a
-start, and `notice` does not need them.
+The registry, the sweep and the guard's modules are imported inside the handlers
+that use them: they are the slow part of a start, and `notice` needs none of them.
 """
 
 from __future__ import annotations
@@ -22,7 +33,9 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import posixpath
 import sys
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +48,11 @@ from . import claude_env, hook_io, notice
 # No resolve() here: the launcher already hands over a resolved src path, and a path lookup must not run before the alarm or inside the notice.
 PLUGIN_ROOT: Final = Path(__file__).parents[3]
 
+# What `prune` may spend on the guard's files. The cap covers what the throttle lets pile up in thirty days (20 slots an hour) with room for the deny
+# claims, and the budget, counted from the start of the hook, leaves the rest of the alarm for the registry sweep and for exiting.
+GUARD_SWEEP_LIMIT: Final = 20 * 24 * 30 * 2
+PRUNE_BUDGET: Final = 1.0
+
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.
 Handler = Callable[[dict[str, Any], Mapping[str, str]], Optional[str]]
 
@@ -46,30 +64,124 @@ def notice_text(payload: dict[str, Any], env: Mapping[str, str]) -> str:
 
 
 def prune(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
-    """Delete notes older than the registry's age limit; nothing to say, whatever happens."""
+    """Delete notes and guard files older than the age limit; nothing to say, whatever happens.
+
+    Both sweeps always run. The guard sweep comes second and sits in a `finally`,
+    so a bug in the first cannot keep it from running, and the bug is still reported.
+    """
     directory = claude_env.data_dir(None, env)
     if directory is None:
         return None
+    deadline = time.monotonic() + PRUNE_BUDGET
+    try:
+        _notes_pruned(directory)
+    finally:
+        _guard_files_pruned(directory, deadline)
+    return None
+
+
+def _notes_pruned(directory: str) -> None:
     from ..registry import Registry
 
     with contextlib.suppress(InvalidRequest, RegistryError, OSError):  # a relative path, a damaged registry and a full disk are all "not now"
         Registry(directory).prune()
-    return None
+
+
+def _guard_files_pruned(directory: str, deadline: float) -> None:
+    from .. import claims, sweep
+    from ..registry import STALE_AFTER
+
+    state = claims.state_dir(directory)  # None for a relative path, which would follow the working directory
+    if state is None:
+        return
+    sweep.swept(state, claims.is_claim_name, STALE_AFTER, time.time(), GUARD_SWEEP_LIMIT, deadline)
+
+
+# The tool calls that edit a file, and the input fields that name it, in the order they are tried.
+# MultiEdit is in no documentation page that was checked, so nothing may depend on the platform sending it; a payload of that name is read like an Edit.
+EDIT_FIELDS: Final = {"Edit": ("file_path",), "Write": ("file_path",), "MultiEdit": ("file_path",), "NotebookEdit": ("notebook_path", "file_path")}
+
+
+def edit_target(payload: dict[str, Any]) -> Optional[str]:
+    """The absolute path the tool call in `payload` writes to, or None when it is no edit or names no usable path.
+
+    A relative path is joined to the call's working directory, which is used for
+    nothing else: it moves with every `cd` and says nothing about where the session started.
+    """
+    tool, tool_input = payload.get("tool_name"), payload.get("tool_input")
+    fields = EDIT_FIELDS.get(tool) if isinstance(tool, str) else None
+    if fields is None or not isinstance(tool_input, dict):
+        return None
+    named = next((tool_input[field] for field in fields if field in tool_input), None)
+    if not isinstance(named, str) or not named or "\0" in named:
+        return None
+    return named if posixpath.isabs(named) else _joined(payload.get("cwd"), named)
+
+
+def _joined(cwd: object, relative: str) -> Optional[str]:
+    return posixpath.join(cwd, relative) if isinstance(cwd, str) and "\0" not in cwd and posixpath.isabs(cwd) else None
+
+
+def edit_denial(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
+    """The reason to deny the edit in `payload`, or None to leave the call to the normal permission flow."""
+    target = edit_target(payload)
+    data_dir = claude_env.data_dir(None, env)
+    if target is None or data_dir is None:
+        return None
+    from .. import guard
+
+    effects = _live_effects(data_dir)
+    if effects is None:
+        return None
+    edit = guard.Edit(payload.get("session_id"), target, claude_env.project_dir(env), claude_env.config_dir(env))
+    denial = guard.decide(edit, effects)
+    return None if denial is None else notice.deny_reason(denial.root)
+
+
+def _live_effects(data_dir: str) -> Optional[Any]:
+    """The guard's effects over the real files, claims and clock, or None when there is nowhere to remember what was said (a relative data directory would follow the working directory)."""
+    from .. import claims, guard, repos
+
+    if claims.state_dir(data_dir) is None:  # a hook that cannot remember what it has said must not speak
+        return None
+    book = claims.Claims(data_dir)
+    return guard.Effects(
+        worker_marked=book.worker_marked,
+        start_recorded=book.start_recorded,
+        resolved=repos.resolved,
+        repo_of=repos.repo_of,
+        pair_claimed=book.pair_claimed,
+        hour=_clock_hour,
+        throttled=book.throttled,
+        ignored=repos.ignored,
+        claim_pair=book.claim_pair,
+        claim_slot=book.claim_slot,
+    )
+
+
+def _clock_hour() -> int:
+    return int(time.time() // 3600)  # a whole number: the slots treat any other kind of value as no hour at all, and the guard would never deny
 
 
 @dataclass(frozen=True)
 class Hook:
     handler: Handler
-    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json, which a test pins
+    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json (for `guard`, the one its entry will declare), which a test pins
+    envelope: Callable[[str], str] = hook_io.hook_output  # what the text of the handler is wrapped in
+    stdin_cap: int = hook_io.MAX_STDIN  # bytes of stdin that are read; a longer input is an empty payload
 
 
-HOOKS: Final = {"notice": Hook(notice_text, 3), "prune": Hook(prune, 2)}
+HOOKS: Final = {
+    "notice": Hook(notice_text, 3),
+    "prune": Hook(prune, 2),
+    "guard": Hook(edit_denial, 2, hook_io.denial_output, hook_io.MAX_EDIT_STDIN),
+}
 
 
 def run(hook: Hook, stdin: IO[bytes], env: Mapping[str, str], stdout: IO[str]) -> None:
-    text = hook.handler(hook_io.payload_from(stdin), env)
+    text = hook.handler(hook_io.payload_from(stdin, hook.stdin_cap), env)
     if text is not None:
-        hook_io.emitted(stdout, hook_io.hook_output(text))
+        hook_io.emitted(stdout, hook.envelope(text))
 
 
 def main(

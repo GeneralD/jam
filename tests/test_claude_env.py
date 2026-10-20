@@ -18,6 +18,9 @@ session_module = lazy("jam.session")
 # on what the module calls its constants.
 SESSION_VAR, JOB_VAR, DATA_VAR = "CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "CLAUDE_PLUGIN_DATA"
 TOKEN_VAR, TOKEN = "CLAUDE_CODE_SESSION_ACCESS_TOKEN", "planted-token-value"
+PROJECT_VAR, CONFIG_VAR, HOME_VAR = "CLAUDE_PROJECT_DIR", "CLAUDE_CONFIG_DIR", "HOME"
+# Values the directory resolvers must refuse: empty, relative, a control character, the wrong type.
+UNUSABLE = ("", "relative/dir", ".", "~/dir", "/a\x00b", None, 5, b"/abs", ["/abs"])
 
 
 class RecordingEnv(Mapping):
@@ -57,6 +60,47 @@ class DataDirTest(unittest.TestCase):
         env = RecordingEnv({DATA_VAR: "/from/env", TOKEN_VAR: TOKEN, SESSION_VAR: SESSION_ID})
         claude_env.data_dir(None, env)
         self.assertEqual(set(env.reads), {DATA_VAR})
+
+
+class ProjectDirTest(unittest.TestCase):
+    def test_an_absolute_value_is_the_project_directory(self):
+        self.assertEqual(claude_env.project_dir({PROJECT_VAR: "/work/app"}), "/work/app")
+
+    def test_anything_that_is_not_an_absolute_string_is_none(self):
+        for value in UNUSABLE:
+            with self.subTest(value=repr(value)):
+                self.assertIsNone(claude_env.project_dir({PROJECT_VAR: value}))
+        self.assertIsNone(claude_env.project_dir({}))
+
+    def test_only_the_project_variable_is_read(self):
+        env = RecordingEnv({PROJECT_VAR: "/work/app", DATA_VAR: "/var/jam", TOKEN_VAR: TOKEN})
+        claude_env.project_dir(env)
+        self.assertEqual(set(env.reads), {PROJECT_VAR})
+
+
+class ConfigDirTest(unittest.TestCase):
+    def test_an_absolute_variable_is_the_config_directory_and_beats_home(self):
+        self.assertEqual(claude_env.config_dir({CONFIG_VAR: "/opt/cfg", HOME_VAR: "/opt/home"}), "/opt/cfg")
+
+    def test_without_a_usable_variable_it_is_dot_claude_below_home(self):
+        for value in (*UNUSABLE, "relative/cfg"):
+            with self.subTest(value=repr(value)):
+                self.assertEqual(claude_env.config_dir({CONFIG_VAR: value, HOME_VAR: "/opt/home"}), "/opt/home/.claude")
+        self.assertEqual(claude_env.config_dir({HOME_VAR: "/opt/home/"}), "/opt/home/.claude")
+
+    def test_with_neither_a_usable_variable_nor_a_usable_home_it_is_none(self):
+        for home in UNUSABLE:
+            with self.subTest(home=repr(home)):
+                self.assertIsNone(claude_env.config_dir({HOME_VAR: home}))
+        self.assertIsNone(claude_env.config_dir({}))
+
+    def test_only_the_config_variable_and_home_are_read_and_home_only_as_the_fallback(self):
+        env = RecordingEnv({CONFIG_VAR: "/opt/cfg", HOME_VAR: "/opt/home", TOKEN_VAR: TOKEN})
+        claude_env.config_dir(env)
+        self.assertEqual(env.reads, [CONFIG_VAR])
+        fallback = RecordingEnv({HOME_VAR: "/opt/home", TOKEN_VAR: TOKEN})
+        claude_env.config_dir(fallback)
+        self.assertEqual(set(fallback.reads), {CONFIG_VAR, HOME_VAR})
 
 
 class IdentityTypeTest(unittest.TestCase):

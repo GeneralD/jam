@@ -19,6 +19,7 @@ repos instead of switching contexts by hand.
   from the owner as usual and may message the sessions that started it.
 - **Guard** against editing another repository directly: the first such edit in a
   session is denied once with a pointer to delegation, and the re-issued edit passes.
+  Planned: the core is built and tested but not registered yet (see Status).
 
 ## Why delegate instead of editing directly
 
@@ -48,9 +49,11 @@ The reasoning is in [docs/decisions.md](docs/decisions.md) (D12).
 
 Two SessionStart hooks run through the same launcher (`scripts/jam hook ...`):
 one injects a short notice that gives the model the exact command line, with the
-data directory flag, and the other sweeps stale session notes at startup. They
-never block a session: a failure they can handle still exits 0, and one that
-hangs is ended by an alarm (D13).
+data directory flag, and the other sweeps stale session notes and stale guard
+files at startup. They never block a session: a failure they can handle still
+exits 0, and one that hangs is ended by an alarm (D13). A third hook, the
+delegation guard, is implemented and tested but not registered, so no session
+reaches it yet (D14).
 
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
@@ -69,13 +72,16 @@ scope for now; the adapter seams are there so they can be added when needed.
 Early development. The plugin installs from this repository and carries the MCP
 server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus two
 SessionStart hooks: the notice that tells the model how to run jam, and the
-startup sweep of stale notes. All of it is tested against fakes in place of
-Claude Code and has not yet been run end to end in a live session. The one
-check left to the owner is `claude --plugin-dir .`, started in a trusted
-directory and not as a background session (`--bg`). The delegation guard and the
-skill do not exist yet (`hooks/hooks.json` declares only the two SessionStart
-hooks and there is no `skills/` directory), so the guard and the `SendMessage`
-guidance described above are planned, not shipped.
+startup sweep of stale notes and guard files. All of it is tested against fakes
+in place of Claude Code and has not yet been run end to end in a live session.
+The one check left to the owner is `claude --plugin-dir .`, started in a trusted
+directory and not as a background session (`--bg`). The core of the delegation
+guard exists and is tested, but it is not registered: `hooks/hooks.json`
+declares only the two SessionStart hooks, so no session is affected. Its design
+is accepted (D14); registering it waits for live checks in real sessions, and
+for the change that marks the sessions jam starts. The skill does not exist yet (there is no
+`skills/` directory), so the `SendMessage` guidance described above is planned,
+not shipped.
 
 ## License
 

@@ -1,4 +1,4 @@
-"""The plumbing every Claude Code hook shares: the SessionStart envelope, the capped stdin read, the alarm and quiet streams.
+"""The plumbing every Claude Code hook shares: the envelopes (the SessionStart context and the PreToolUse denial), the capped stdin read, the alarm and quiet streams.
 
 Stdlib only, and the one module of jam it imports, `jam.streams`, is stdlib only
 too, so a hook starts about as fast as the interpreter does.
@@ -14,6 +14,7 @@ from typing import IO, Any, Final, Optional
 from ..streams import silenced
 
 MAX_STDIN: Final = 256 * 1024
+MAX_EDIT_STDIN: Final = 8 * 1024 * 1024  # the PreToolUse input of a Write carries the whole content of the file
 
 
 def hook_output(text: str) -> str:
@@ -23,6 +24,17 @@ def hook_output(text: str) -> str:
     the platform silently ignores it.
     """
     envelope = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    return json.dumps(envelope, ensure_ascii=True, separators=(",", ":"))
+
+
+def denial_output(reason: str) -> str:
+    """The PreToolUse envelope that denies the tool call, as one ASCII line without its newline.
+
+    It can say nothing but "deny". A hook with nothing to deny prints nothing, so
+    the normal permission flow stays in force: an "allow" would skip it, and "ask"
+    and "defer" would change it.
+    """
+    envelope = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
     return json.dumps(envelope, ensure_ascii=True, separators=(",", ":"))
 
 

@@ -69,6 +69,48 @@ class EnvelopeTest(unittest.TestCase):
         self.assertEqual(json.loads(line)["hookSpecificOutput"]["additionalContext"], text)
 
 
+class DenialTest(unittest.TestCase):
+    def test_it_parses_back_to_exactly_the_nested_pre_tool_use_deny_shape(self):
+        self.assertEqual(
+            json.loads(hook_io.denial_output("no thanks")),
+            {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "no thanks"}},
+        )
+
+    def test_the_line_is_compact_in_the_documented_key_order(self):
+        self.assertEqual(
+            hook_io.denial_output("x"),
+            '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}',
+        )
+
+    def test_it_can_only_deny_and_never_allow_ask_or_defer(self):
+        for reason in ("allow", "ask", "defer", '"permissionDecision":"allow"'):
+            with self.subTest(reason=reason):
+                self.assertEqual(json.loads(hook_io.denial_output(reason))["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_the_line_has_no_raw_newline_and_survives_awkward_text(self):
+        text = 'line one\nline "two"\r\n\t\u65e5\u672c\u8a9e \\   \ud800'
+        line = hook_io.denial_output(text)
+        self.assertNotIn("\n", line)
+        self.assertNotIn("\r", line)
+        self.assertTrue(line.isascii())
+        self.assertEqual(json.loads(line)["hookSpecificOutput"]["permissionDecisionReason"], text)
+
+    def test_the_session_start_envelope_is_unchanged(self):
+        self.assertEqual(json.loads(hook_io.hook_output("x"))["hookSpecificOutput"]["hookEventName"], "SessionStart")
+
+
+class StdinCapTest(unittest.TestCase):
+    def test_the_edit_cap_is_eight_mebibytes_and_the_default_cap_is_unchanged(self):
+        self.assertEqual(hook_io.MAX_EDIT_STDIN, 8 * 1024 * 1024)
+        self.assertEqual(hook_io.MAX_STDIN, CAP)
+
+    def test_a_payload_at_the_edit_cap_is_read_and_one_byte_more_is_not(self):
+        cap = hook_io.MAX_EDIT_STDIN
+        pad = cap - len(b'{"a":""}')
+        self.assertEqual(hook_io.payload_from(io.BytesIO(b'{"a":"' + b"x" * pad + b'"}'), limit=cap), {"a": "x" * pad})
+        self.assertEqual(hook_io.payload_from(io.BytesIO(b'{"a":"' + b"x" * (pad + 1) + b'"}'), limit=cap), {})
+
+
 class PayloadTest(unittest.TestCase):
     def test_a_json_object_is_returned_as_it_is(self):
         self.assertEqual(hook_io.payload_from(io.BytesIO(b'{"session_id":"a","source":"startup","new":[1]}')), {"session_id": "a", "source": "startup", "new": [1]})
