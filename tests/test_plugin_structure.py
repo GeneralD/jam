@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = ROOT / ".claude-plugin" / "marketplace.json"
 HOOKS_JSON = ROOT / "hooks" / "hooks.json"
-MCP_JSON = ROOT / ".mcp.json"
+# A .mcp.json at the plugin root is also the project-scoped MCP configuration of
+# any session started in a clone of this repository, where ${CLAUDE_PLUGIN_ROOT}
+# is unset, so the server is declared in the manifest instead.
+PROJECT_MCP_JSON = ROOT / ".mcp.json"
 SRC = ROOT / "src" / "jam"
 LAUNCHER = ROOT / "scripts" / "jam"
 MAX_LINES = 400
@@ -136,9 +139,10 @@ class ManifestTest(unittest.TestCase):
         if "version" in plugin and "version" in entry:
             self.assertEqual(plugin["version"], entry["version"])
 
-    def test_mcp_servers_are_declared_in_one_place_only(self):
-        if MCP_JSON.exists():
-            self.assertNotIn("mcpServers", load_json(PLUGIN_JSON))
+    def test_mcp_servers_are_declared_inline_in_the_manifest_and_nowhere_else(self):
+        # An inline map, not a path to another file, so there is one place to read.
+        self.assertIsInstance(load_json(PLUGIN_JSON).get("mcpServers"), dict)
+        self.assertFalse(PROJECT_MCP_JSON.exists())
 
 
 class HooksTest(unittest.TestCase):
@@ -161,7 +165,7 @@ class HooksTest(unittest.TestCase):
 
 class HygieneTest(unittest.TestCase):
     def test_no_absolute_or_home_paths_in_manifests(self):
-        candidates = [PLUGIN_JSON, MARKETPLACE_JSON, HOOKS_JSON, MCP_JSON]
+        candidates = [PLUGIN_JSON, MARKETPLACE_JSON, HOOKS_JSON]
         offenders = [
             str(path.relative_to(ROOT))
             for path in candidates
@@ -171,10 +175,10 @@ class HygieneTest(unittest.TestCase):
 
 
 class McpConfigTest(unittest.TestCase):
-    """.mcp.json is read unconditionally: a missing file must fail, not skip."""
+    """The manifest's server is read unconditionally: a missing declaration must fail, not skip."""
 
     def server(self):
-        servers = load_json(MCP_JSON)["mcpServers"]
+        servers = load_json(PLUGIN_JSON)["mcpServers"]
         self.assertEqual(list(servers), ["jam"])
         return servers["jam"]
 
@@ -193,8 +197,10 @@ class McpConfigTest(unittest.TestCase):
         self.assertEqual(scripts, ["scripts/jam"])
         self.assertEqual([script_problem(rel) for rel in scripts], [None])
 
-    def test_the_manifest_declares_no_servers_of_its_own(self):
-        self.assertNotIn("mcpServers", load_json(PLUGIN_JSON))
+    def test_no_mcp_json_at_the_root_turns_into_a_project_server_of_a_clone(self):
+        # Seen on 2026-10-21: `claude mcp get jam` in a clone listed it as "Project
+        # config (shared via .mcp.json)", with the plugin variable left unexpanded.
+        self.assertFalse(PROJECT_MCP_JSON.exists())
 
 
 class LauncherFileTest(unittest.TestCase):

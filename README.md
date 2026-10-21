@@ -38,14 +38,15 @@ core            session registry, verbs: spawn / list / stop / whoami
  ├ harness      how a session is started, listed, stopped, and read
  └ environment  seam for terminal-specific delivery (no adapter in v1)
 messaging       Claude Code's native SendMessage, taught to the AI by a skill
-entry points    MCP server (.mcp.json) and CLI (scripts/jam), one operations table
+entry points    MCP server (plugin.json) and CLI (scripts/jam), one operations table
 ```
 
-The MCP server is declared in `.mcp.json` and offers `spawn`, `list`, `stop`,
-and `whoami` as tools. The CLI is the launcher `scripts/jam`, run as
-`python3 -I <plugin root>/scripts/jam <command>`; it is the fallback for when
-the tools are not available. Both print the same JSON for the same arguments.
-The reasoning is in [docs/decisions.md](docs/decisions.md) (D12).
+The MCP server is declared inline in `.claude-plugin/plugin.json` and offers
+`spawn`, `list`, `stop`, and `whoami` as tools. The CLI is the launcher
+`scripts/jam`, run as `python3 -I <plugin root>/scripts/jam <command>`; it is
+the fallback for when the tools are not available. Both print the same JSON for
+the same arguments. The reasoning is in [docs/decisions.md](docs/decisions.md)
+(D12).
 
 Two SessionStart hooks run through the same launcher (`scripts/jam hook ...`):
 one injects a short notice that gives the model the exact command line, with the
@@ -73,15 +74,16 @@ Early development. The plugin installs from this repository and carries the MCP
 server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus two
 SessionStart hooks: the notice that tells the model how to run jam, and the
 startup sweep of stale notes and guard files. All of it is tested against fakes
-in place of Claude Code and has not yet been run end to end in a live session.
-The one check left to the owner is `claude --plugin-dir .`, started in a trusted
-directory and not as a background session (`--bg`). The core of the delegation
-guard exists and is tested, but it is not registered: `hooks/hooks.json`
-declares only the two SessionStart hooks, so no session is affected. Its design
-is accepted (D14); registering it waits for live checks in real sessions, and
-for the change that marks the sessions jam starts. The skill does not exist yet (there is no
-`skills/` directory), so the `SendMessage` guidance described above is planned,
-not shipped.
+in place of Claude Code. A print-mode session with `claude -p --plugin-dir .`
+connected the MCP server, answered `list` through it, and ran the notice. The
+one check left to the owner is an interactive `claude --plugin-dir .` session,
+started in a trusted directory and not as a background session (`--bg`). The
+core of the delegation guard exists and is tested, but it is not registered:
+`hooks/hooks.json` declares only the two SessionStart hooks, so no session is
+affected. Its design is accepted (D14); registering it waits for live checks in
+real sessions, and for the change that marks the sessions jam starts. The skill
+does not exist yet (there is no `skills/` directory), so the `SendMessage`
+guidance described above is planned, not shipped.
 
 ## License
 

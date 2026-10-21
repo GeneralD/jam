@@ -225,10 +225,11 @@ pass).
   A later verb costs one table row and its tests.
 - **Data directory.** The CLI takes a global `--data-dir DIR` flag that precedes
   the command; the MCP server takes `CLAUDE_PLUGIN_DATA`, which the platform
-  exports to it, so `.mcp.json` passes no data-dir argument. One resolver serves
-  both: a non-empty flag, else the variable, else none. The SessionStart notice
-  bakes the flag into one copy-paste command prefix (D13); a CLI call without
-  the flag runs without a registry (see the degradation below). Rejected:
+  exports to it, so the server's declaration passes no data-dir argument. One
+  resolver serves both: a non-empty flag, else the variable, else none. The
+  SessionStart notice bakes the flag into one copy-paste command prefix (D13); a
+  CLI call without the flag runs without a registry (see the degradation below).
+  Rejected:
   - the variable alone: it does not reach commands the model runs through the
     Bash tool (see "Plugin platform facts"), so the CLI would have no registry;
   - MCP only, with no CLI: no shell fallback when the tools are unavailable;
@@ -301,10 +302,11 @@ pass).
 - **Names.** The server key is `jam` and the tools are bare verbs, so the model
   sees `mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, and `__whoami`.
   Descriptive names would only be worth it if tool search were seen hiding them.
-- **Unverified.** No session was started to test this change, so these are open
-  (also listed under "Open verification items"): the four tools appearing in a
-  real `claude --plugin-dir` load, and `claude` being on the PATH of an MCP server
-  that runs inside a `--bg` worker. A failure of the second reads "cannot run
+- **Verified later.** A print-mode session (`claude -p --plugin-dir .`, Claude
+  Code 2.1.300, 2026-10-21) listed the server `plugin:jam:jam` as connected with
+  the four tools, and a call to `list` returned the live sessions. Still open
+  (also listed under "Open verification items"): `claude` being on the PATH of an
+  MCP server that runs inside a `--bg` worker. A failure reads "cannot run
   'claude': executable not found"; add a binary override only if it happens.
 - **Deferred.** Registering the foreign-repo guard (D6; its core exists, see D14), the skill, self-stop refusal in
   code (the short id is not reliably known over MCP, so the `stop` description
@@ -433,10 +435,12 @@ handler, `guard` (PreToolUse), is in the same table but is not registered in
   on every exit. A later feature that truly needs exit-time work must use only
   lock-free single-file operations, stay far below 1.5 seconds, and be a
   deliberate reviewed change.
-- **Unverified.** No session was started to test this change: the notice
-  reaching the model, the `startup` matcher, and the timings are open (also
-  listed under "Open verification items"). The one owner check is `claude
-  --plugin-dir .` in a trusted directory, not `--bg`.
+- **Unverified.** No session was started to test this change. A later
+  print-mode session (`claude -p --plugin-dir .`, 2026-10-21) ran the notice at
+  `startup` and returned its `additionalContext`; the notice reaching the model
+  in an interactive session, the prune running once, and the timings are still
+  open (also listed under "Open verification items"). The one
+  owner check is `claude --plugin-dir .` in a trusted directory, not `--bg`.
 
 ## D14. The foreign-repository guard
 
@@ -697,10 +701,11 @@ checked against the release notes for
 [2.1.292](https://github.com/anthropics/claude-code/releases/tag/v2.1.292).
 
 - **Layout.** `.claude-plugin/plugin.json`, `hooks/hooks.json` (the file needs a
-  top-level `"hooks"` key), `.mcp.json`, `skills/`, `bin/`. A plugin `bin/` is
-  added to the Bash tool's PATH while the plugin is enabled, and claude.ai and
-  Cowork do not install a plugin that has one; jam does not rely on it (see D5)
-  and keeps its launcher in `scripts/` instead (D12).
+  top-level `"hooks"` key), `.mcp.json` (jam declares its server in the
+  manifest instead, see "Plugin MCP servers" below), `skills/`, `bin/`. A plugin
+  `bin/` is added to the Bash tool's PATH while the plugin is enabled, and
+  claude.ai and Cowork do not install a plugin that has one; jam does not rely on
+  it (see D5) and keeps its launcher in `scripts/` instead (D12).
 - **Path variables.** `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` are exported
   to hook processes and MCP stdio servers, but not to commands the model runs
   through the Bash tool. This is why a SessionStart hook has to inject the
@@ -793,14 +798,25 @@ checked against the release notes for
   uninstalling leaves the cached copy on disk. If the payload grows, move it to
   a subdirectory and point the marketplace entry at it.
 - **Plugin MCP servers (documented).** A plugin declares them in `.mcp.json` at
-  its root as `{"mcpServers": {"<server>": {...}}}`. In a stdio server's
+  its root as `{"mcpServers": {"<server>": {...}}}`, or inline in `plugin.json`
+  under `mcpServers` (a map keyed by server name, a path to another file, or an
+  array of both), which loads after `.mcp.json` and replaces a server of the same
+  name. jam uses the inline map: a `.mcp.json` at the repository root is also read
+  as the project-scoped MCP configuration of any session started in a clone, and
+  `${CLAUDE_PLUGIN_ROOT}` is not set there. A session that starts the server from
+  that scope (`claude -p`, which loads project servers without asking, or an
+  interactive session once the server is approved) runs the unexpanded text and
+  fails to connect, and an interactive session that has not approved it shows it
+  as pending approval. Observed on 2026-10-21: `claude mcp get jam` named the
+  scope "Project config (shared via .mcp.json)" and reported a failed connection.
+  In a stdio server's
   `command`, `args`, and `env`, `${CLAUDE_PLUGIN_ROOT}` and
   `${CLAUDE_PLUGIN_DATA}` are substituted, and both are exported to the server
   process. Tool names are `mcp__plugin_<plugin>_<server>__<tool>`, with every
   character outside `A-Z a-z 0-9 _ -` replaced by `_`; jam's are
-  `mcp__plugin_jam_jam__<verb>`. The documentation shows only the wrapped shape;
-  a flat file with the server names at the top level was also accepted in the
-  design pass (unverified), and jam uses the wrapped one.
+  `mcp__plugin_jam_jam__<verb>`. For a `.mcp.json` file the documentation shows
+  both the wrapped shape and one without the wrapper, with the server names at the
+  top level.
 - **stdio framing (MCP specification, 2025-11-25).** Messages are delimited by
   newlines and must not contain embedded newlines; there is no `Content-Length`
   header. stdout carries protocol messages only, and stderr may carry logs. Client
@@ -831,15 +847,13 @@ checked against the release notes for
 
 - Does a real session loaded with `claude --plugin-dir .`, started in a
   trusted directory (not `--bg`), receive the notice at SessionStart, and does
-  the `startup`-only prune run once? It needs a session, which the change that
-  added the hooks did not start (D13).
+  the `startup`-only prune run once? A print-mode session ran the notice hook,
+  which returned its `additionalContext` (D13); an interactive session, the model
+  acting on the notice, and the prune are still unchecked.
 - Peers hold a message for approval when permission modes differ. Which
   permission mode should `spawn` give a worker so that messages flow without
   a prompt? Until this is settled, the entry points do not expose
   `permission_mode` (D12).
-- Do the four `mcp__plugin_jam_jam__*` tools appear in a real session loaded
-  with `claude --plugin-dir`, and does `list` work there? It needs a session,
-  which the change that added the entry points did not start (D12).
 - Is `claude` on the PATH of a jam MCP server that runs inside a `--bg` worker?
   Environment variables do not reach workers, and whether the PATH does is
   unverified. Check it by spawning from a worker, and follow any real spawn with
