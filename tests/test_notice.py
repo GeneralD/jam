@@ -199,9 +199,15 @@ class DenyReasonTest(unittest.TestCase):
                 self.assertIsNone(re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]", reason))
 
     def test_the_reason_names_the_spawn_tool_the_plugin_really_has(self):
-        plugin = json.loads((PLUGIN_FILES / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"]
-        (server,) = json.loads((PLUGIN_FILES / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        plugin, server = plugin_and_server()
         self.assertIn(f"mcp__plugin_{plugin}_{server}__{operations.OPERATIONS[0].name}", notice.deny_reason("/work/other"))
+
+
+def plugin_and_server():
+    """The plugin's name and its one MCP server's name, as the tool names are built from them."""
+    manifest = json.loads((PLUGIN_FILES / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    (server,) = manifest["mcpServers"]
+    return manifest["name"], server
 
 
 def command_forms(text):
@@ -231,8 +237,7 @@ class DriftTest(unittest.TestCase):
         self.assertEqual(names, [op.name for op in operations.OPERATIONS])
 
     def test_the_mcp_names_in_the_text_follow_the_plugin_and_server_names(self):
-        plugin = json.loads((PLUGIN_FILES / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"]
-        (server,) = json.loads((PLUGIN_FILES / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        plugin, server = plugin_and_server()
         names = [op.name for op in operations.OPERATIONS]
         prefix = f"mcp__plugin_{plugin}_{server}__"
         self.assertIn(f"{prefix}{names[0]}, " + ", ".join(f"__{name}" for name in names[1:]) + ".", text_for())

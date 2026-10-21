@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True, parser_class=Subcommand)
     for op in operations.OPERATIONS:
         add_command(commands, op)
-    commands.add_parser("mcp", allow_abbrev=False)  # used by .mcp.json; deliberately has no help line
+    commands.add_parser("mcp", allow_abbrev=False)  # used by the manifest's mcpServers; deliberately has no help line
     return parser
 
 

@@ -11,5 +11,11 @@
   "homepage": "https://github.com/GeneralD/jam",
   "repository": "https://github.com/GeneralD/jam",
   "license": "MIT",
-  "keywords": ["multi-session", "orchestration", "messaging", "background-sessions"]
+  "keywords": ["multi-session", "orchestration", "messaging", "background-sessions"],
+  "mcpServers": {
+    "jam": {
+      "command": "python3",
+      "args": ["-I", "${CLAUDE_PLUGIN_ROOT}/scripts/jam", "mcp"]
+    }
+  }
 }
