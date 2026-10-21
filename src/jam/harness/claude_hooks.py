@@ -21,8 +21,9 @@ its entry will declare (a test holds the alarm below it):
   the note sweep has neither, so only the alarm bounds it. A failure in one sweep
   does not stop the others.
 - `adopt` (SessionStart) records the directory the session started in and, unless
-  the session continues one it already had (`clear` or `compact`), takes the spawn
-  ticket of that directory as the session's worker mark. It prints nothing.
+  the session continues or copies one (`resume`, `clear`, `compact` or `fork`),
+  takes the spawn ticket of that directory as the session's worker mark. It
+  prints nothing.
 - `guard` (PreToolUse) denies, once per session and repository, an edit of a
   file in a repository other than the one the session started in (D6, D14). It
   is implemented and tested but not registered in hooks/hooks.json, so no
@@ -58,8 +59,9 @@ PLUGIN_ROOT: Final = Path(__file__).parents[3]
 SWEEP_LIMIT: Final = 20 * 24 * 30 * 2
 # The budget, counted from the start of the hook, leaves the rest of the alarm for the sweeps and for exiting.
 PRUNE_BUDGET: Final = 1.0
-# The sources that continue a session already started: they keep its mark, if it has one, and take no spawn ticket.
-RESUMED: Final = ("clear", "compact")
+# The sources of a session that continues or copies one already started; they take no spawn ticket. A live --bg worker's
+# first start reported `startup`, and `claude --bg --resume` started a copy that reported `fork` (D14); an unknown source takes one.
+RESUMED: Final = ("resume", "clear", "compact", "fork")
 
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.
 Handler = Callable[[dict[str, Any], Mapping[str, str]], Optional[str]]
@@ -142,7 +144,7 @@ def adopt(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
 
 
 def _mark_taken(directory: str, session_id: object, cwd: object, source: object) -> None:
-    """Take the freshest spawn ticket of `cwd` as the mark of the session, unless the source says the session continues one it already had."""
+    """Take the freshest spawn ticket of `cwd` as the mark of the session, unless the source says the session continues or copies one."""
     from .. import tickets
 
     if source in RESUMED:

@@ -83,9 +83,10 @@ and ran the notice. The one check left to the owner is an interactive `claude
 --plugin-dir .` session, started in a trusted directory and not as a background
 session (`--bg`). The core of the delegation guard exists and is tested, but it
 is not registered: `hooks/hooks.json` declares only the three SessionStart
-hooks, so no session is affected. Its design is accepted (D14); registering it
-waits only for live checks in real sessions, among them whether a real
-background worker takes its mark. The skill does not exist yet (there is no
+hooks, so no session is affected. Its design is accepted (D14), and the live
+checks it waited for passed in real background sessions on 2026-10-21, among
+them a background worker taking its mark; registering it waits only for approval
+of the text the model reads (D14-8). The skill does not exist yet (there is no
 `skills/` directory), so the `SendMessage` guidance described above is planned,
 not shipped.
 

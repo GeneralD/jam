@@ -377,15 +377,16 @@ registered in `hooks/hooks.json`; it is D14.
   registry's own sweep stays by file age (D11).
 - **`adopt`** has no matcher, so it fires again on resume, clear, compact and
   fork, as `notice` does. It writes the start record of the session, the real
-  path of its start directory (D14), once. For a source other than `clear` or
-  `compact` it also takes the freshest spawn ticket of that directory as the
-  session's worker mark, by moving it there: a hard link, which never replaces a
-  mark, then the removal of the ticket. It prints nothing and always exits 0.
-  Its bounded work: one create, one capped listing, at most 8 moves; a lost mark
-  costs at most one extra deny per repository once the guard is registered. A
-  ticket counts only when it was written at most 300 seconds before the start (a
-  ticket dated in the future counts as fresh), so a worker whose first session
-  start comes later gets no mark.
+  path of its start directory (D14), once. At a fresh start (any source other
+  than `resume`, `clear`, `compact` and `fork`, so an unknown one counts) it
+  also takes the freshest spawn ticket of that directory as the session's worker
+  mark, by moving it there: a hard link, which never replaces a mark, then the
+  removal of the ticket. It prints nothing and always exits 0. Its bounded work:
+  one create, one capped listing, at most 8 moves; a lost mark costs at most one
+  extra deny per repository once the guard is registered. A ticket counts only
+  when it was written at most 300 seconds before the start (a ticket dated in
+  the future counts as fresh), so a worker whose first session start comes later
+  gets no mark.
 - **Synchronous, with explicit bounds, and no `async`.** A command hook's
   default timeout is 600 seconds, so each entry sets its own: 5 seconds for
   `notice` and `adopt`, and 3 for `prune`. Inside the process an alarm (3
@@ -455,16 +456,19 @@ registered in `hooks/hooks.json`; it is D14.
   on every exit. A later feature that truly needs exit-time work must use only
   lock-free single-file operations, stay far below 1.5 seconds, and be a
   deliberate reviewed change.
-- **Unverified.** No session was started to test this change. A later
-  print-mode session (`claude -p --plugin-dir .`, 2026-10-21) ran the notice at
-  `startup` and returned its `additionalContext`; the notice reaching the model
-  in an interactive session, the prune running once, and the timings are still
-  open (also listed under "Open verification items"). The one
-  owner check is `claude --plugin-dir .` in a trusted directory, not `--bg`.
-  Still open: the worker's first session start, and the `source` it reports there,
-  are unobserved, so no live worker has shown its mark yet. The delay between
-  the spawn and that first session start must also stay within 300 seconds for
-  the mark to exist; no run has measured it.
+- **Unverified.** No session was started to test this change. A later print-mode
+  session (`claude -p --plugin-dir .`, 2026-10-21) ran the notice at `startup`
+  and returned its `additionalContext`; the notice reaching the model in an
+  interactive session, the prune running once, and the timings are still open
+  (also listed under "Open verification items"). The one owner check is `claude
+  --plugin-dir .` in a trusted directory, not `--bg`. Observed later
+  (2026-10-21, Claude Code 2.1.300, see D14): a `--bg` worker's first session
+  start reported `source: startup` and the spawn directory as `cwd`, and its
+  mark existed afterwards. The delay between the spawn and that first session
+  start must also stay within 300 seconds for the mark to exist; the one run
+  with a ticket measured 0.9 seconds. A `claude --bg --resume` started a copy
+  whose session start reported `fork`, so `adopt` now skips the ticket for
+  `resume` and `fork` as well.
 
 ## D14. The foreign-repository guard
 
@@ -475,11 +479,12 @@ implemented and tested, and it is **not registered**: `hooks/hooks.json`
 declares no PreToolUse entry, so no session behaves differently. It is reachable
 only as `python3 -I scripts/jam hook guard`, and a test pins that nothing in
 `hooks/hooks.json` names it. The writers of the marks are in place (`adopt` and
-`spawn`, see "Loop protection"). Registering it waits only for the live checks
-under "Unverified", and a worker that jam starts is expected to carry its mark
-from its first session start, which is one of those checks, provided that start
-comes within 300 seconds of the spawn (D13). D6 states the intent; this entry is
-how it works.
+`spawn`, see "Loop protection"), and the live checks it waited for passed on
+2026-10-21 (see "Verified in real sessions"): a worker started after a spawn
+ticket carried its mark from its first session start, which came well within the
+300 seconds of D13, and was not denied. Registering it waits only for the
+owner's approval of the text the model reads (D14-8). D6 states the intent; this
+entry is how it works.
 
 - **Event and entry.** PreToolUse, matcher `Edit|Write|MultiEdit|NotebookEdit`
   (letters and `|` only, which the platform reads as an exact-name list; never
@@ -594,25 +599,26 @@ how it works.
   not denied while the mark exists. The mark is a bare file created by moving a
   ticket that `spawn` wrote before it started the worker, at the first session
   start in that directory within 300 seconds; it records that the session took
-  the ticket, not that jam started it. Only `clear` and `compact` skip the
-  ticket (D13). A resume takes it like a startup does: a `--bg` worker's first
-  start source is unobserved, and skipping resume would close no path, since a
-  startup takes the ticket too. The session id keeps the mark across a resume,
-  while `/clear` and a fork get a new id. The mark stays until the sweep removes
-  it, 30 days after the spawn; after that the per-pair claim and the hourly
-  limit still bound the loop. Independently of recognition, a denial is given at
-  most once per (session, repository) through the `O_EXCL` claim, however often
-  the edit is retried, the session resumed or the hook run in parallel, and at
-  most 20 times per clock hour on the machine through the slot files. A deny
-  never spawns anything, and a recognised worker is not denied while its mark
-  exists, so a guard cannot push a worker to delegate again. Per-pair memory
-  alone does not bound a chain, since every hop is a fresh session id; the
-  hourly limit does, even when recognition fails at every hop. What is not
-  bounded is a model that spawns in a loop on its own initiative, and ping-pong
-  between peers: those belong to the skill and to `SendMessage`. The wrong
-  assumptions cost different amounts. A session that takes a ticket it did not
-  spawn (a start in that directory within 300 seconds of the spawn, other than
-  `clear` and `compact`) is not denied in any repository while its mark exists,
+  the ticket, not that jam started it. Only a fresh start takes the ticket:
+  `resume`, `clear`, `compact` and `fork` skip it (D13), and an unknown source
+  takes it. A live `--bg` worker's first start reported `startup`, so the skip
+  costs a worker nothing, and it keeps a resumed session or a copy from taking a
+  ticket meant for a new worker. The session id keeps the mark across a resume,
+  while `/clear` and a fork get a new id and so start without one. The mark
+  stays until the sweep removes it, 30 days after the spawn; after that the
+  per-pair claim and the hourly limit still bound the loop. Independently of
+  recognition, a denial is given at most once per (session, repository) through
+  the `O_EXCL` claim, however often the edit is retried, the session resumed or
+  the hook run in parallel, and at most 20 times per clock hour on the machine
+  through the slot files. A deny never spawns anything, and a recognised worker
+  is not denied while its mark exists, so a guard cannot push a worker to
+  delegate again. Per-pair memory alone does not bound a chain, since every hop
+  is a fresh session id; the hourly limit does, even when recognition fails at
+  every hop. What is not bounded is a model that spawns in a loop on its own
+  initiative, and ping-pong between peers: those belong to the skill and to
+  `SendMessage`. The wrong assumptions cost different amounts. A session that
+  takes a ticket it did not spawn (a fresh start in that directory within 300
+  seconds of the spawn) is not denied in any repository while its mark exists,
   which is until the sweep: it misses one nudge per repository it edits in, and
   the permission flow is unchanged, so what is lost is the nudge, not a
   permission. A worker gets at most one extra denial per repository when another
@@ -649,21 +655,25 @@ how it works.
   them. Which tool calls are edits, where the path sits in the call, the
   variable names and the deny envelope (`hook_io.py`) are in the harness
   package, which wires the guard itself, as D13 describes for the other hooks.
-- **Unverified, and to be checked in a real session before registration:**
-  PreToolUse firing inside a `--bg` worker (inferred from PostToolUse having
-  fired there and from the documentation of agent view, not observed); the values
-  of `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` inside a `--bg` worker and
-  after a resume; whether a JSON denial holds under `bypassPermissions` (the
-  documentation is silent); and that the model re-issues a denied edit at all,
-  which nothing in the documentation promises (the re-issued edit passes only
-  because of the claim file).
-- **The worker's first session start.** Still to be observed on a real `--bg`
-  spawn, followed by `stop`, `rm` and a re-list, under the authorisation of
-  owner question 9: the worker's first session start reports a directory that
-  resolves to the spawn directory (the same `dir16`), that start lands within
-  300 seconds of the ticket's write, and `guard-v1/worker.<id>` exists
-  afterwards with the ticket gone. The `source` it reports is recorded too,
-  since any value other than `clear` or `compact` claims the mark.
+- **Verified in real sessions (2026-10-21, Claude Code 2.1.300).** A throwaway
+  copy of the plugin, with the guard registered and a hook that logged every
+  input, was loaded with `--plugin-dir` into `--bg` workers that ran under
+  `bypassPermissions`, and each worker was followed by `stop`, `rm` and a
+  re-list. PreToolUse fires inside a `--bg` worker. There `CLAUDE_PROJECT_DIR`
+  is the spawn directory and `CLAUDE_CONFIG_DIR` the configuration directory,
+  and both stay the same after `EnterWorktree` and after a resume (the one tried
+  started a copy, see "Plugin platform facts"). A JSON denial holds under
+  `bypassPermissions`. The model re-issues a denied edit: it saw the reason as
+  `PreToolUse:Write hook error: <reason>`, wrote the same file again, and the
+  second attempt passed because of the claim file. The copy that a resume
+  started has a new id, so it was denied once more in the same repository.
+- **The worker's first session start (verified the same day).** After a ticket
+  was written the way `spawn` writes it, a `--bg` worker started in that
+  directory reported `source: startup` and the spawn directory as `cwd` 0.9
+  seconds later. `guard-v1/worker.<id>` existed afterwards with the ticket gone
+  and its file time kept, and the worker's edit in another repository passed
+  with no denial. The probe ran `claude --bg` itself instead of going through
+  `spawn`; `tests/test_spawn_wiring.py` covers `spawn` and `adopt` together.
 - **Rejected.** An environment counter, which does not reach workers. A registry
   note keyed by the short id: it would be written after the spawn returns, which
   is the race of D6, and a hook cannot derive the short id. A marker in the spawn
@@ -721,15 +731,15 @@ how it works.
      should mention the guard once it is registered (default: no).
   8. D14-8, approval of the fixed product text the model reads: the deny reason
      and the notice.
-  9. Authorisation (granted) for the live checks listed under "Unverified", and
-     for the check of `claude --bg --session-id` in "Plugin platform facts". The
-     `--session-id` check was answered on 2026-10-21: the flag is ignored under
-     `--bg`. Each real spawn is followed by `stop`, `rm` and a re-list.
+  9. Authorisation (granted) for the live checks listed under "Verified in real
+     sessions", and for the check of `claude --bg --session-id` in "Plugin
+     platform facts". The `--session-id` check was answered on 2026-10-21: the
+     flag is ignored under `--bg`. The live checks ran the same day. Each real
+     spawn is followed by `stop`, `rm` and a re-list.
   10. Shape of the work: the core merged without registering anything. The
-      writers of the spawn tickets and the `worker.<id>` marks are now in place
-      (D13, `adopt`), so the change that registers the hook waits only for the
-      live checks above. Until a live worker has shown its mark, nothing confirms
-      that a worker that jam starts escapes the denial.
+      writers of the spawn tickets and the `worker.<id>` marks are in place
+      (D13, `adopt`), and the live checks above passed, so the change that
+      registers the hook waits only for D14-8.
 
 ## Plugin platform facts
 
@@ -817,34 +827,36 @@ checked against the release notes for
 - **Background sessions need a trusted workspace.** `claude --bg` refuses to
   start in a directory whose workspace trust was never accepted, printing
   "Workspace not trusted. Run `claude` in <dir> once and accept the trust
-  prompt, then retry." `spawn` must detect this, stop, and tell the owner
-  which directory to trust, instead of retrying or silently failing. Observed:
-  the command exits with status 1, writes the message to stderr, names the
-  resolved path, and starts no session. A fresh temporary directory outside
-  the owner's config was refused, while a new subdirectory under a directory
-  that holds a trusted project was accepted, so trust may be inherited from an
-  ancestor (unverified). jam therefore does not pre-check trust: it runs the
-  command and reacts to the error.
+  prompt, then retry." `spawn` must detect this, stop, and tell the owner which
+  directory to trust, instead of retrying or silently failing. Observed: the
+  command exits with status 1, writes the message to stderr, names the resolved
+  path, and starts no session. A fresh temporary directory outside the owner's
+  config was refused, while a new subdirectory under a directory that holds a
+  trusted project was accepted, so trust may be inherited from an ancestor
+  (unverified). A git repository created inside a trusted project was refused
+  (2026-10-21), so whatever is inherited does not reach a nested repository. jam
+  therefore does not pre-check trust: it runs the command and reacts to the
+  error.
 - **Environment variables do not reach `--bg` workers (verified by
   experiment).** A variable set on the shell that runs `claude --bg` was absent
   in the worker: asked to run `printenv` on it through its Bash tool, the
   worker answered that it was unset. Workers are started by the supervisor
   from a pre-warmed pool, not from the spawning shell. Anything a worker must
   know has to travel in the prompt or in a file.
-- **Background session commands (observed on 2.1.300).** `claude --bg [-n
-  name] [--permission-mode mode] -- <prompt>` prints `backgrounded · <id> ·
-  <name>` (with terminal colors) and exits 0; the `--` makes a prompt that
-  starts with a dash safe.
-  `claude agents --json` rows have `id`, `sessionId`, `name`, `cwd`, `kind`,
-  `startedAt`, `state`, and, while the session runs, `pid` and `status`
-  (`busy` or `idle`). `claude stop` removes a session from that plain listing
-  at once; with `--all` the row stays, without `pid` or `status`, until
-  `claude rm`, after which it is gone from both. The `state` seen right after
-  a stop was `stopped` in two runs and `done` in a third, so it is treated as
-  a pass-through string. The help text says the plain listing also includes
+- **Background session commands (observed on 2.1.300).** `claude --bg [-n name]
+  [--permission-mode mode] -- <prompt>` prints `backgrounded · <id> · <name>`
+  (with terminal colors) and exits 0; the `--` makes a prompt that starts with a
+  dash safe. `claude agents --json` rows have `id`, `sessionId`, `name`, `cwd`,
+  `kind`, `startedAt`, `state`, and, while the session runs, `pid` and `status`
+  (`busy` or `idle`). `claude stop` removes a session from that plain listing at
+  once; with `--all` the row stays, without `pid` or `status`, until `claude
+  rm`, after which it is gone from both. The `state` seen right after a stop was
+  `stopped` in two runs and `done` in a third, so it is treated as a
+  pass-through string. The help text says the plain listing also includes
   interactive sessions, but only background ones have been seen. A session's
   transcript is a JSONL file in the project directory named after its
-  `sessionId`; `claude logs` shows only a terminal redraw.
+  `sessionId`; `claude logs` shows only a terminal redraw. Once, a row came back
+  without `id`; the adapter skips a row without a usable id.
 - **`--session-id` under `--bg` (verified by experiment, 2026-10-21, Claude Code
   2.1.300).** Passing `--session-id <uuid>` to `claude --bg` does not fix the
   session's id: the command prints `warning: --bg manages the session id;
@@ -853,6 +865,26 @@ checked against the release notes for
   in the one observation so far; that is one observation and is not relied on.
   jam takes the short id from the spawn output and never derives it from
   `sessionId` (D12).
+- **The background isolation guard (observed on 2.1.300, 2026-10-21).** A `--bg`
+  session's first edit inside its own checkout is refused before any plugin
+  PreToolUse hook runs, with "This background session hasn't isolated its
+  changes yet. Call EnterWorktree first so edits land in a worktree instead of
+  the shared checkout, then retry this edit using the worktree path". Setting
+  `"worktree": {"bgIsolation": "none"}` in that repository's
+  `.claude/settings.json` turns it off. An edit outside the session's checkout
+  is not refused by it. A worker refused this way then edited in
+  `.claude/worktrees/<name>`, a linked worktree of the same repository, which
+  jam's guard counts as the start repository (D14), so it added no denial there. While that worktree holds
+  uncommitted changes, `claude rm` refuses to remove the session.
+- **Resuming a background session (observed on 2.1.300).** `claude --bg --resume
+  <id>`, run on a session whose state was `stopped`, printed `note: session <id>
+  is already running in the background, so this started a copy as <new id>`. The
+  copy's session start reported `source: fork` with a new session id, and kept
+  the `cwd`, `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` of the original. A
+  resume that keeps the id has not been seen for a background session.
+- **The data directory of a `--plugin-dir` plugin (observed on 2.1.300).**
+  `CLAUDE_PLUGIN_DATA` is `<config>/plugins/data/<name>-inline`, where
+  `<config>` is the configuration directory.
 - **Install from the public repository (verified by experiment).** With the
   manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered
   a marketplace named `jam` and `claude plugin install jam@jam` installed the
@@ -930,9 +962,6 @@ checked against the release notes for
   checks the full listing and reports a session that is still there.
 - Interactive (foreground) sessions: do they appear in `claude agents --json`,
   and can a worker's message wake one?
-- The unverified points of D14 (PreToolUse inside a `--bg` worker, the values of
-  `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` there and after a resume, a JSON
-  denial under `bypassPermissions`, the model re-issuing a denied edit, and the
-  worker's first session start and the mark it leaves). Each needs a real
-  session, which the changes that added the guard core and the marks did not
-  start (D14).
+- A resume of a background session that keeps its id: the one tried started a
+  copy (see "Plugin platform facts"). Does `CLAUDE_PROJECT_DIR` stay the spawn
+  directory there, as it did in the copy?
