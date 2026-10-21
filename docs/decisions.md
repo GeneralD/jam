@@ -379,12 +379,13 @@ registered in `hooks/hooks.json`; it is D14.
   fork, as `notice` does. It writes the start record of the session, the real
   path of its start directory (D14), once. For a source other than `clear` or
   `compact` it also takes the freshest spawn ticket of that directory as the
-  session's worker mark, by renaming it. It prints nothing and always exits 0.
-  Its bounded work: one create, one capped listing, at most 8 renames; a lost
-  mark costs at most one extra deny per repository once the guard is registered.
-  A ticket counts only when it was written at most 300 seconds before the start
-  (a ticket dated in the future counts as fresh), so a worker whose first
-  session start comes later gets no mark.
+  session's worker mark, by moving it there: a hard link, which never replaces a
+  mark, then the removal of the ticket. It prints nothing and always exits 0.
+  Its bounded work: one create, one capped listing, at most 8 moves; a lost mark
+  costs at most one extra deny per repository once the guard is registered. A
+  ticket counts only when it was written at most 300 seconds before the start (a
+  ticket dated in the future counts as fresh), so a worker whose first session
+  start comes later gets no mark.
 - **Synchronous, with explicit bounds, and no `async`.** A command hook's
   default timeout is 600 seconds, so each entry sets its own: 5 seconds for
   `notice` and `adopt`, and 3 for `prune`. Inside the process an alarm (3
@@ -570,15 +571,15 @@ how it works.
   | File | Content | Written by | Read by |
   |---|---|---|---|
   | `start.<id>` | the session's start directory and a line feed | `adopt`, once | step 5, as the fallback |
-  | `worker.<id>` | empty | `adopt`, by renaming a spawn ticket | step 3 |
-  | `pending-v1/<dir16>.<nonce16>` | empty, written by `spawn` before the harness runs | `spawn` | `adopt`, which renames the freshest one of its directory to `worker.<id>` |
+  | `worker.<id>` | empty | `adopt`, by moving a spawn ticket | step 3 |
+  | `pending-v1/<dir16>.<nonce16>` | empty, written by `spawn` before the harness runs | `spawn` | `adopt`, which moves the freshest one of its directory to `worker.<id>` |
   | `denied.<id>.<repo>` | empty | step 11 | steps 8 and 11 |
   | `slot.<hour>.<n>`, n below 20 | empty | step 12 | step 9 |
 
   `prune` removes deny claims and hour slots older than 30 days, with an entry
   cap and a deadline, and `prune` also removes start records and worker marks
   from `guard-v1` and spawn tickets from `pending-v1`, each file older than 30
-  days. A worker mark's age is its file time, which the rename keeps from the
+  days. A worker mark's age is its file time, which the move keeps from the
   spawn ticket, so the mark lasts 30 days from the spawn, not from the worker's
   start. Ids admit dots, so every name pattern anchors the fixed-width suffix.
   The registry of D11 is untouched: it is keyed by the harness short id, which a
@@ -590,8 +591,8 @@ how it works.
   the writers in `jam.claims` and `jam.tickets` for the start record and the
   mark.
 - **Loop protection** has three layers. A session with a `worker.<id>` mark is
-  not denied while the mark exists. The mark is a bare file created by renaming
-  a ticket that `spawn` wrote before it started the worker, at the first session
+  not denied while the mark exists. The mark is a bare file created by moving a
+  ticket that `spawn` wrote before it started the worker, at the first session
   start in that directory within 300 seconds; it records that the session took
   the ticket, not that jam started it. Only `clear` and `compact` skip the
   ticket (D13). A resume takes it like a startup does: a `--bg` worker's first

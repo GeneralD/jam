@@ -5,7 +5,7 @@ A ticket is an empty private file in the `pending-v1` directory, named
 real path the session starts in, and `nonce16` is random, so tickets never collide.
 `spawn` writes one before the harness runs and withdraws it if the harness raises.
 The first session start in that directory that has no mark yet claims the freshest
-ticket of it by renaming the ticket to the worker mark of the session (any session
+ticket of it by moving the ticket to the worker mark of the session (any session
 start can claim, not only a spawned worker; the harness adapter decides which starts
 continue a session already marked and so take no ticket). A ticket is claimed only
 within 300 seconds of its writing, and `prune` sweeps any ticket older than thirty days.
@@ -30,7 +30,7 @@ from .session import is_id
 
 PENDING_DIR: Final = "pending-v1"
 FRESH_SECONDS: Final = 300.0  # the age a ticket may have and still be claimed
-MAX_CANDIDATES: Final = 8  # the renames one session start may try
+MAX_CANDIDATES: Final = 8  # the moves one session start may try
 SCAN_LIMIT: Final = 1024  # the entries of the ticket directory one session start may look at
 NONCE_BYTES: Final = 8
 NOT_WRITTEN: Final = "the spawn ticket could not be written"
@@ -81,7 +81,7 @@ def claim_mark(data_dir: object, session_id: object, cwd: object, now: float) ->
 
     Nothing is claimed when the session has its mark already, and nothing is listed
     or claimed for a session id that is not valid. A ticket that another session
-    takes first is passed over, and any other failure ends the attempts after one rename.
+    takes first is passed over, and any other failure ends the attempts after one move.
     """
     book = Claims(data_dir)
     if not is_id(session_id) or book.worker_marked(session_id):

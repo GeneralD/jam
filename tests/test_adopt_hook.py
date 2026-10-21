@@ -174,32 +174,32 @@ class WorkerMarkTest(AdoptCase):
                 self.mark().unlink()
                 self.assertFalse(ticket.exists())
 
-    def test_a_ticket_that_vanishes_before_the_rename_gives_way_to_the_next_one(self):
+    def test_a_ticket_that_vanishes_before_the_move_gives_way_to_the_next_one(self):
         first = self.ticket(age=1.0, name=f"{tickets.dir_key(self.app)}.{1:016x}")
         second = self.ticket(age=9.0, name=f"{tickets.dir_key(self.app)}.{2:016x}")
-        real_rename = os.rename
+        real_link = os.link
         sources = []
 
-        def racing(source, target):
+        def racing(source, target, **kwargs):
             sources.append(source)
             if len(sources) == 1:
                 os.unlink(source)
-            return real_rename(source, target)
+            return real_link(source, target, **kwargs)
 
-        with mock.patch("os.rename", side_effect=racing):
+        with mock.patch("os.link", side_effect=racing):
             self.adopt()
         self.assertEqual(sources, [str(first), str(second)])
         self.assertTrue(self.mark().exists())
 
-    def test_at_most_eight_renames_are_attempted(self):
+    def test_at_most_eight_moves_are_attempted(self):
         made = [self.ticket(age=1.0 + number, name=f"{tickets.dir_key(self.app)}.{number:016x}") for number in range(10)]
         sources = []
 
-        def gone(source, target):
+        def gone(source, target, **kwargs):
             sources.append(source)
             raise FileNotFoundError(2, "gone")
 
-        with mock.patch("os.rename", side_effect=gone):
+        with mock.patch("os.link", side_effect=gone):
             result = self.adopt()
         self.assertEqual(sources, [str(path) for path in made[:8]])
         self.assertEqual((result.code, result.err), (0, ""))

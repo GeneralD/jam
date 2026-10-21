@@ -7,7 +7,8 @@ updated. The files are disposable: a missing one only means one more nudge, and
 only the age of a file decides when it is swept (see `is_state_name`).
 
 The start record is written once per session by the session start, and the
-worker mark is made by renaming a spawn ticket (see `tickets`) into place. The
+worker mark is made by moving a spawn ticket (see `tickets`) into place: a hard
+link, then the removal of the ticket, so that a mark is never replaced. The
 guard reads both as facts about the session.
 
 Nothing here raises. A data directory that is missing, relative or not writable,
@@ -24,8 +25,10 @@ of every edit.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import stat
 from typing import Final, Optional
 
 from .files import absolute_path, created, ensured, read_small, real_directory, subdirectory
@@ -57,8 +60,13 @@ class Claims:
         self._dir = state_dir(data_dir)
 
     def worker_marked(self, session_id: object) -> bool:
-        """True when the session carries the mark of a session that took a spawn ticket. Two lstats: one of the state directory, one of the mark."""
-        return self._exists(_named("worker", session_id))
+        """True when the session carries the mark of a session that took a spawn ticket. Two lstats: one of the state directory, one of the mark.
+
+        Only a regular file counts: a link, a directory or anything else under the
+        name is no mark, so the guard does not exempt the session for it.
+        """
+        found = self._entry(_named("worker", session_id))
+        return found is not None and stat.S_ISREG(found.st_mode)
 
     def start_recorded(self, session_id: object) -> Optional[str]:
         """The directory the session started in, as recorded, or None when there is no complete record of an absolute path.
@@ -87,11 +95,17 @@ class Claims:
         return name is not None and record is not None and self._claimed([name], record)
 
     def mark_worker(self, session_id: object, source: object) -> Optional[bool]:
-        """Rename the spawn ticket at `source` to the worker mark of the session.
+        """Move the spawn ticket at `source` into place as the worker mark of the session.
 
-        True when it was renamed. False when the ticket is gone, because another
-        session took it first. None when nothing could be done: a bad id or source,
-        a state directory that cannot be used, or any other failure.
+        The move is a hard link to the mark's name, which never replaces a mark that
+        is there already and keeps the ticket's file time, then the removal of the
+        ticket. Two sessions can link the same ticket; the one whose removal finds
+        it gone lost it, and takes its own link back.
+
+        True when this call moved it. False when the ticket is gone, because another
+        session took it first. None when nothing could be done: the session has a
+        mark already, a bad id or source, a state directory that cannot be used, or
+        any other failure.
         """
         name = _named("worker", session_id)
         if name is None or absolute_path(source) is None:
@@ -99,13 +113,14 @@ class Claims:
         directory = self._ensured()
         if directory is None:
             return None
+        mark = os.path.join(directory, name)
         try:
-            os.rename(source, os.path.join(directory, name))
+            os.link(source, mark, follow_symlinks=False)
         except FileNotFoundError:
             return False
-        except OSError:
+        except OSError:  # a mark that is there already among them: it is kept as it is
             return None
-        return True
+        return _ticket_removed(source, mark)
 
     def pair_claimed(self, session_id: object, key: object) -> bool:
         """True when this session has already been denied for the repository with this key. A read; it claims nothing."""
@@ -134,14 +149,17 @@ class Claims:
         return self._dir if self._dir is not None and real_directory(self._dir) else None
 
     def _exists(self, name: Optional[str]) -> bool:
+        return self._entry(name) is not None
+
+    def _entry(self, name: Optional[str]) -> Optional[os.stat_result]:
+        """What lstat says of `name` in the state directory, or None when there is nothing to look at."""
         directory = None if name is None else self._looked_in()
         if directory is None or name is None:
-            return False
+            return None
         try:
-            os.lstat(os.path.join(directory, name))
+            return os.lstat(os.path.join(directory, name))
         except OSError:  # absent, or not to be looked at: either way nothing is known to exist
-            return False
-        return True
+            return None
 
     def _claimed(self, names: list[str], data: bytes = b"") -> bool:
         """Create the first of `names` that does not exist yet, holding `data`. True only when this call created it."""
@@ -173,6 +191,22 @@ def _slots(hour: object) -> list[str]:
     if not isinstance(hour, int) or isinstance(hour, bool) or hour < 0:
         return []
     return [f"slot.{hour}.{number}" for number in range(SLOTS_PER_HOUR)]
+
+
+def _ticket_removed(source: str, mark: str) -> Optional[bool]:
+    """Remove the ticket that was just linked as `mark`: True when this call removed it.
+
+    When the removal fails, the link is taken back. False when the ticket was gone,
+    because another session that linked it too removed it first; None for any other
+    failure, which leaves the ticket for a later start.
+    """
+    try:
+        os.unlink(source)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            os.unlink(mark)
+        return False if isinstance(exc, FileNotFoundError) else None
+    return True
 
 
 def _record(directory: object) -> Optional[bytes]:

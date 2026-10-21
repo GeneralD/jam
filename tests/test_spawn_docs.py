@@ -40,6 +40,7 @@ class ReadmeTest(unittest.TestCase):
         self.assertIn("plus three SessionStart hooks", status)
         self.assertIn("`hooks/hooks.json` declares only the three SessionStart hooks, so no session is affected", status)
         self.assertIn("registering it waits only for live checks in real sessions", status)
+        self.assertIn("among them whether a real background worker takes its mark", status)
         self.assertIn("the step that records the start directory and turns a fresh spawn ticket into a worker mark", status)
         for removed in ("plus two SessionStart hooks", "declares only the two SessionStart hooks", "for the change that marks the sessions jam starts", "the step that marks the sessions jam starts"):
             with self.subTest(removed=removed):
@@ -52,7 +53,7 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("Three hooks ship, all on SessionStart", d13)
         self.assertIn("**`adopt`**", d13)
         self.assertIn("prints nothing and always exits 0", d13)
-        self.assertIn("bounded work: one create, one capped listing, at most 8 renames", d13)
+        self.assertIn("bounded work: one create, one capped listing, at most 8 moves", d13)
         self.assertIn("a lost mark costs at most one extra deny per repository once the guard is registered", d13)
         self.assertNotIn("Two hooks ship", d13)
 
@@ -91,7 +92,7 @@ class DecisionsTest(unittest.TestCase):
     def test_d14_state_table_names_adopt_as_the_writer_of_the_start_record_and_the_mark(self):
         d14 = flat(section(DECISIONS, "D14."))
         self.assertIn("| `start.<id>` | the session's start directory and a line feed | `adopt`, once | step 5, as the fallback |", d14)
-        self.assertIn("| `worker.<id>` | empty | `adopt`, by renaming a spawn ticket | step 3 |", d14)
+        self.assertIn("| `worker.<id>` | empty | `adopt`, by moving a spawn ticket | step 3 |", d14)
 
     def test_d14_describes_the_ticket_directory_and_its_names(self):
         d14 = flat(section(DECISIONS, "D14."))
@@ -147,7 +148,7 @@ class DecisionsTest(unittest.TestCase):
         d14 = flat(section(DECISIONS, "D14."))
         for phrase in (
             "is not denied while the mark exists",
-            "The mark is a bare file created by renaming a ticket",
+            "The mark is a bare file created by moving a ticket",
             "at the first session start in that directory within 300 seconds",
             "it records that the session took the ticket, not that jam started it",
             "Only `clear` and `compact` skip the ticket (D13)",
@@ -185,7 +186,7 @@ class DecisionsTest(unittest.TestCase):
     def test_d14_state_paragraph_names_the_directories_and_the_thirty_day_age_of_the_mark(self):
         d14 = flat(section(DECISIONS, "D14."))
         self.assertIn("removes start records and worker marks from `guard-v1` and spawn tickets from `pending-v1`, each file older than 30 days", d14)
-        self.assertIn("A worker mark's age is its file time, which the rename keeps from the spawn ticket", d14)
+        self.assertIn("A worker mark's age is its file time, which the move keeps from the spawn ticket", d14)
         self.assertIn("so a spawn and the worker's start agree on it when both spell the directory the same way after realpath", d14)
         self.assertIn("on a case-insensitive file system another spelling costs a lost mark", d14)
 

@@ -136,7 +136,7 @@ class MarkWorkerTest(StartCase):
         path.write_bytes(b"")
         return path
 
-    def test_a_ticket_is_renamed_to_the_worker_mark_and_the_ticket_is_gone(self):
+    def test_a_ticket_is_moved_to_the_worker_mark_and_the_ticket_is_gone(self):
         source = self.ticket()
         self.assertIs(self.book().mark_worker(SID, str(source)), True)
         mark = self.state / f"worker.{SID}"
@@ -150,9 +150,65 @@ class MarkWorkerTest(StartCase):
 
     def test_any_other_failure_answers_none(self):
         source = self.ticket()
-        with mock.patch("os.rename", side_effect=PermissionError(13, "denied")):
+        with mock.patch("os.link", side_effect=PermissionError(13, "denied")):
             self.assertIsNone(self.book().mark_worker(SID, str(source)))
         self.assertTrue(source.exists())
+
+    def test_the_mark_keeps_the_file_time_of_the_ticket(self):
+        source = self.ticket()
+        os.utime(source, (1_000_000.0, 1_000_000.0))
+        self.assertIs(self.book().mark_worker(SID, str(source)), True)
+        self.assertEqual(os.lstat(self.state / f"worker.{SID}").st_mtime, 1_000_000.0)
+
+    def test_a_mark_that_is_there_already_is_kept_and_the_second_ticket_stays(self):
+        first, second = self.ticket("first"), self.ticket("second")
+        self.assertIs(self.book().mark_worker(SID, str(first)), True)
+        mark = self.state / f"worker.{SID}"
+        kept = os.lstat(mark).st_ino
+        self.assertIsNone(self.book().mark_worker(SID, str(second)))
+        self.assertEqual(os.lstat(mark).st_ino, kept)
+        self.assertTrue(second.exists())
+
+    def test_a_session_that_linked_a_ticket_another_removed_first_takes_its_link_back(self):
+        source = self.ticket()
+        real_link = os.link
+
+        def raced(src, dst, **kwargs):
+            real_link(src, dst, **kwargs)
+            os.unlink(src)  # another session linked the same ticket and removed it first
+
+        with mock.patch("os.link", side_effect=raced):
+            self.assertIs(self.book().mark_worker(SID, str(source)), False)
+        self.assertFalse((self.state / f"worker.{SID}").exists())
+
+    def test_a_ticket_that_cannot_be_removed_takes_the_link_back_and_stays(self):
+        source = self.ticket()
+        real_unlink = os.unlink
+
+        def refused(path, *args, **kwargs):
+            if os.fspath(path) == str(source):
+                raise PermissionError(13, "denied")
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch("os.unlink", side_effect=refused):
+            self.assertIsNone(self.book().mark_worker(SID, str(source)))
+        self.assertFalse((self.state / f"worker.{SID}").exists())
+        self.assertTrue(source.exists())
+
+    def test_only_a_regular_file_under_the_mark_name_is_a_mark(self):
+        self.state.mkdir(parents=True)
+        target = self.root / "target"
+        target.write_bytes(b"")
+        planted = {
+            "a directory": lambda path: path.mkdir(),
+            "a link to a file": lambda path: path.symlink_to(target),
+            "a fifo": lambda path: os.mkfifo(path),
+        }
+        for number, (kind, plant) in enumerate(planted.items()):
+            with self.subTest(kind=kind):
+                sid = f"cccc3333-0000-4000-8000-00000000000{number}"
+                plant(self.state / f"worker.{sid}")
+                self.assertIs(self.book().worker_marked(sid), False)
 
     def test_an_invalid_session_id_or_source_answers_none(self):
         source = str(self.ticket())

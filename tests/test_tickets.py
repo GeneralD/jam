@@ -250,43 +250,43 @@ class ClaimTest(TicketCase):
         self.assertFalse(self.claim())
         self.assertTrue(ticket.exists())
 
-    def test_a_ticket_that_vanishes_before_the_rename_gives_way_to_the_next_one(self):
+    def test_a_ticket_that_vanishes_before_the_move_gives_way_to_the_next_one(self):
         first = self.plant(f"{self.key}.{1:016x}", 1)
         second = self.plant(f"{self.key}.{2:016x}", 10)
-        real_rename = os.rename
+        real_link = os.link
         sources = []
 
-        def racing(source, target):
+        def racing(source, target, **kwargs):
             sources.append(source)
             if len(sources) == 1:
-                os.unlink(source)  # another session takes it between the listing and the rename
-            return real_rename(source, target)
+                os.unlink(source)  # another session takes it between the listing and the move
+            return real_link(source, target, **kwargs)
 
-        with mock.patch("os.rename", side_effect=racing):
+        with mock.patch("os.link", side_effect=racing):
             self.assertTrue(self.claim())
         self.assertEqual(sources, [str(first), str(second)])
         self.assertFalse(second.exists())
         self.assertTrue((self.data / "guard-v1" / f"worker.{SID}").is_file())
 
-    def test_at_most_eight_renames_are_tried_when_each_ticket_is_gone(self):
+    def test_at_most_eight_moves_are_tried_when_each_ticket_is_gone(self):
         made = [self.plant(f"{self.key}.{number:016x}", 1 + number) for number in range(10)]
         sources = []
 
-        def gone(source, target):
+        def gone(source, target, **kwargs):
             sources.append(source)
             raise FileNotFoundError(2, "gone")
 
-        with mock.patch("os.rename", side_effect=gone):
+        with mock.patch("os.link", side_effect=gone):
             self.assertFalse(self.claim())
         self.assertEqual(sources, [str(path) for path in made[:8]])
         self.assertFalse((self.data / "guard-v1" / f"worker.{SID}").exists())
 
-    def test_any_other_failure_ends_the_attempts_after_one_rename(self):
+    def test_any_other_failure_ends_the_attempts_after_one_move(self):
         for number in range(3):
             self.plant(f"{self.key}.{number:016x}", 1 + number)
-        with mock.patch("os.rename", side_effect=PermissionError(13, "denied")) as rename:
+        with mock.patch("os.link", side_effect=PermissionError(13, "denied")) as link:
             self.assertFalse(self.claim())
-        self.assertEqual(rename.call_count, 1)
+        self.assertEqual(link.call_count, 1)
 
     def test_no_ticket_claims_nothing(self):
         self.assertFalse(self.claim())
