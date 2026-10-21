@@ -46,7 +46,7 @@ class SourceRuleTest(unittest.TestCase):
 
 
 class ResumeAndSummaryTest(unittest.TestCase):
-    def test_the_docs_say_a_resume_keeps_the_id_only_when_it_does(self):
+    def test_the_docs_tie_keeping_the_mark_to_a_resume_that_keeps_the_id(self):
         decisions = flat(DECISIONS)
         self.assertIn("so a resume that keeps the id keeps it, while `/clear` and a fork get a new id", decisions)
         self.assertIn("a resumed one can return with the same id", decisions)
@@ -54,7 +54,7 @@ class ResumeAndSummaryTest(unittest.TestCase):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, decisions)
 
-    def test_d6_and_the_ticket_module_say_only_a_fresh_start_takes_the_ticket(self):
+    def test_d6_names_the_fresh_start_and_the_ticket_module_leaves_the_skip_to_the_adapter(self):
         d6 = flat(section(DECISIONS, "D6."))
         self.assertIn("the first fresh start in that directory (D13) takes the ticket as the mark", d6)
         self.assertNotIn("the first session start in that directory takes the ticket", d6)
@@ -79,7 +79,8 @@ class LiveChecksTest(unittest.TestCase):
             "reported `source: startup`",
             "`guard-v1/worker.<id>` existed afterwards with the ticket gone",
             "The probe ran `claude --bg` itself instead of going through `spawn`",
-            "the skip of `resume` and `fork` that this change adds is covered by unit tests only",
+            "the skip of `resume` and `fork`, added to the `RESUMED` tuple of `src/jam/harness/claude_hooks.py` after the probe, is covered by unit tests only",
+            "In both runs that were denied, the original session and the copy its resume started,",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, verified)
@@ -93,11 +94,12 @@ class LiveChecksTest(unittest.TestCase):
         status = flat(d14.split("\n- **Event and entry.**")[0])
         shape = flat(d14.split("Shape of the work:")[1])
         self.assertIn("the live checks it waited for ran on 2026-10-21", status)
-        self.assertIn("One point stays open, a resume that keeps the session id", status)
-        self.assertIn("costs at most one extra denial per repository, so registration does not wait for it", status)
+        self.assertIn("Two points stay open: the skip of `resume` and `fork`, which only unit tests cover, and a resume that keeps the session id", status)
+        self.assertIn("If `CLAUDE_PROJECT_DIR` or `CLAUDE_CONFIG_DIR` differs on a resume that keeps the id", status)
+        self.assertIn("So registration does not wait for either", status)
         self.assertIn("Registering it waits only for the owner's approval of the text the model reads (D14-8)", status)
-        self.assertIn("and the live checks above ran, leaving open only a resume that keeps the id, whose cost is bounded, so the change that registers the hook waits only for D14-8", shape)
-        for removed in ('waits only for the live checks under "Unverified"', "is expected to carry its mark", "the live checks it waited for passed"):
+        self.assertIn("and the live checks above ran, leaving open two points whose cost is bounded (see the status above), so the change that registers the hook waits only for D14-8", shape)
+        for removed in ('waits only for the live checks under "Unverified"', "is expected to carry its mark", "the live checks it waited for passed", "One point stays open"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, status)
         self.assertNotIn("Until a live worker has shown its mark", shape)
@@ -108,6 +110,9 @@ class LiveChecksTest(unittest.TestCase):
         self.assertIn("the one run with a ticket measured 0.9 seconds", d13)
         self.assertNotIn("are unobserved, so no live worker has shown its mark yet", d13)
         self.assertNotIn("no run has measured it", d13)
+        self.assertIn("- **Partly verified.** No session was started to test this change itself.", section(DECISIONS, "D13."))
+        self.assertIn("which only unit tests cover", d13)
+        self.assertNotIn("the timings are still open (also listed", d13)
 
     def test_the_readme_status_says_the_checks_passed_and_what_registration_waits_for(self):
         status = flat(section(README, "Status"))
@@ -121,17 +126,20 @@ class PlatformFactsTest(unittest.TestCase):
     def test_the_platform_facts_record_what_the_live_checks_found(self):
         facts = flat(section(DECISIONS, "Plugin platform facts"))
         for phrase in (
-            "**The background isolation guard (observed on 2.1.300, 2026-10-21).**",
+            "**The background isolation guard (observed once on 2.1.300, 2026-10-21).**",
+            "that order is inferred, not observed",
             "This background session hasn't isolated its changes yet.",
             '`"worktree": {"bgIsolation": "none"}`',
             "which jam's guard counts as the start repository",
-            "`claude rm` refuses to remove the session",
+            "`claude rm` refused to remove the session",
             "**Resuming a background session (observed on 2.1.300).**",
             "so this started a copy as <new id>",
             "reported `source: fork` with a new session id",
-            "`<config>/plugins/data/<name>-inline`, where `<config>` is the configuration directory",
+            "`<config>/plugins/data/jam-probe-inline`, where `<config>` is the configuration directory",
+            "so `<name>-inline` is expected for any name",
             "Once, a row came back without `id`",
             "In the one case tried (2026-10-21), a git repository created inside a trusted project was refused",
+            "whether trust is inherited at all is still unverified",
             "run right after `claude stop <id>` had printed `stopped <id>`",
             "it was started from the same directory, so this does not tell whether they are inherited",
             "as the way to turn it off; that setting was not tried",
@@ -147,6 +155,7 @@ class PlatformFactsTest(unittest.TestCase):
         self.assertNotIn("The unverified points of D14", items)
         self.assertNotIn("the worker's first session start and the mark it leaves", items)
         self.assertIn("A resume of a background session that keeps its id", items)
+        self.assertIn("Do `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` keep their values there?", items)
 
 
 if __name__ == "__main__":

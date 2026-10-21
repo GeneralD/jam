@@ -40,7 +40,7 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("hold their defaults until the owner revises them", d14)
 
     def test_d14_status_and_the_shape_of_the_work_no_longer_wait_for_the_marks(self):
-        # The writers of the marks are in place (adopt and spawn) and the live checks passed, so only D14-8 is left before registration.
+        # The writers of the marks are in place (adopt and spawn) and the live checks ran, so only D14-8 is left before registration.
         d14 = section(DECISIONS, "D14.")
         places = {"status": flat(d14.split("\n- **Event and entry.**")[0]), "shape of the work": flat(d14.split("Shape of the work:")[1])}
         self.assertIn("Registering it waits only for the owner's approval", places["status"])

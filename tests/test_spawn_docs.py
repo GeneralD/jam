@@ -39,7 +39,7 @@ class ReadmeTest(unittest.TestCase):
         status = flat(section(README, "Status"))
         self.assertIn("plus three SessionStart hooks", status)
         self.assertIn("`hooks/hooks.json` declares only the three SessionStart hooks, so no session is affected", status)
-        self.assertIn("the step that records the start directory and turns a fresh spawn ticket into a worker mark", status)
+        self.assertIn("the step that records the start directory and, at a fresh start, turns a spawn ticket from the last 300 seconds into a worker mark", status)
         for removed in ("plus two SessionStart hooks", "declares only the two SessionStart hooks", "for the change that marks the sessions jam starts", "the step that marks the sessions jam starts"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, status)
@@ -133,7 +133,7 @@ class DecisionsTest(unittest.TestCase):
         for phrase in (
             "is not denied while the mark exists",
             "The mark is a bare file created by moving a ticket",
-            "at the first session start in that directory within 300 seconds",
+            "at the first fresh start in that directory (D13) within 300 seconds",
             "it records that the session took the ticket, not that jam started it",
             "a resume that keeps the id keeps the mark",
             "The mark stays until the sweep removes it, 30 days after the spawn",
@@ -158,6 +158,7 @@ class DecisionsTest(unittest.TestCase):
             "a recognised worker is never denied",
             "So the worker a jam starts carries its mark",
             "a provenance flag",
+            "at the first session start in that directory within 300 seconds",
             "the worker's first SessionStart turns it into a mark",
             "in their own directories",
             "however the directory is named",
