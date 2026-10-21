@@ -39,22 +39,22 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("The owner accepted D14-1, D14-2 and D14-3 as proposed and authorised the live checks", d14)
         self.assertIn("hold their defaults until the owner revises them", d14)
 
-    def test_d14_states_the_four_unverified_points(self):
+    def test_d14_states_the_unverified_points(self):
         d14 = flat(section(DECISIONS, "D14."))
         for phrase in ("inside a `--bg` worker", "after a resume", "`bypassPermissions`", "re-issues a denied edit"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d14)
 
-    def test_d14_status_and_the_shape_of_the_work_both_say_registration_waits_for_the_writers_of_the_marks_too(self):
-        # Without the writers no session carries a mark, so a worker that jam starts would be denied like any other session.
+    def test_d14_status_and_the_shape_of_the_work_say_registration_waits_only_for_the_live_checks_now_that_the_marks_are_written(self):
+        # The writers of the marks are in place (adopt and spawn), so the only thing left before registration is the live checks.
         d14 = section(DECISIONS, "D14.")
         places = {"status": flat(d14.split("\n- **Event and entry.**")[0]), "shape of the work": flat(d14.split("Shape of the work:")[1])}
+        self.assertIn("Registering it waits only for the live checks", places["status"])
+        self.assertIn("waits only for the live checks above", places["shape of the work"])
         for name, text in places.items():
             with self.subTest(place=name):
-                self.assertIn("waits for both the", text)
-                self.assertIn("the change that writes the spawn tickets and the `worker.<id>` marks", text)
-                self.assertIn("a worker jam starts would be denied like any other session", text)
-        self.assertIn("live checks", places["status"])
+                self.assertNotIn("waits for both the", text)
+                self.assertNotIn("until that change exists", text)
 
     def test_d6_hands_loop_protection_to_d14_instead_of_calling_it_undecided(self):
         d6 = flat(section(DECISIONS, "D6."))
@@ -158,9 +158,10 @@ class ReadmeTest(unittest.TestCase):
         status = flat(section(README, "Status"))
         self.assertIn("core of the delegation guard exists and is tested, but it is not registered", status)
 
-    def test_the_status_says_registration_waits_for_the_live_checks_and_for_the_change_that_marks_the_sessions_jam_starts(self):
+    def test_the_status_says_registration_waits_only_for_live_checks_in_real_sessions(self):
         status = flat(section(README, "Status"))
-        self.assertIn("registering it waits for live checks in real sessions, and for the change that marks the sessions jam starts", status)
+        self.assertIn("registering it waits only for live checks in real sessions", status)
+        self.assertNotIn("for the change that marks the sessions jam starts", status)
 
     def test_no_document_says_the_guard_does_not_exist(self):
         for name, text in (("README.md", README), ("docs/decisions.md", DECISIONS)):

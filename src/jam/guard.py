@@ -14,7 +14,7 @@ every write goes through the `Effects` it is handed: the live ones are
 that log their calls.
 
     2. the session id is usable in a file name
-    3. the session was started by jam itself (D14-1)
+    3. the session took a spawn ticket (D14-1)
     4. the target resolves to a place
     5. the start directory is known: the platform's own record, else the session's
     6. the target is not inside the configuration directory (D14-3); the start directory is no exclusion

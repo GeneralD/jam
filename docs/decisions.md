@@ -114,12 +114,13 @@ benefit of jam, and the guard exists to make it the default path.
 
 Limits: shell writes (`sed -i`, `git -C`, redirects) are not detected in v1.
 
-Loop protection is required. An environment variable set by the spawner does
-not reach the worker (see Platform facts), so a depth counter cannot travel that
+Loop protection is required. An environment variable set by the spawner does not
+reach the worker (see Platform facts), so a depth counter cannot travel that
 way, and D10 rules out relying on spawn-chain depth alone. D14 (accepted on
 2026-10-20) settles the mechanism: `spawn` writes a ticket before the worker
-starts, the worker's first SessionStart turns it into a mark, a marked session
-is never denied, and an hourly limit bounds whatever recognition misses. The two
+starts, the first session start in that directory takes the ticket as the mark,
+a marked session is not denied while its mark exists (30 days from the spawn,
+see D14), and an hourly limit bounds whatever recognition misses. The two
 earlier candidates were a record keyed by the worker's short id, which races
 because the worker's hook can fire before the spawner records anything, and a
 marker in the spawn prompt, which no hook input carries; D14 records why both
@@ -345,15 +346,15 @@ pass).
 Decided on 2026-10-20, from several independent designs reconciled into one.
 The platform facts it relies on (hook timeouts, `async`, the SessionEnd budget,
 the cap on injected context) are the ones recorded under "Plugin platform
-facts" by the design pass; this change did not re-read the hooks reference. Two
-hooks ship, both on SessionStart, both through the launcher as `python3 -I
+facts" by the design pass; this change did not re-read the hooks reference. Three
+hooks ship, all on SessionStart, all through the launcher as `python3 -I
 "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook <name>`. The launcher dispatches the
 first argument `hook` before it imports the command line, so `notice` never
 loads the parser, the registry or the service, and a test pins that import
-graph. The registry, the sweep and the guard's modules are imported lazily
-inside the handlers that use them, because `notice` needs none of them. A third
-handler, `guard` (PreToolUse), is in the same table but is not registered in
-`hooks/hooks.json`; it is D14.
+graph. The registry, the sweep, the guard's modules and the spawn tickets are
+imported lazily inside the handlers that use them, because `notice` needs none of
+them. A fourth handler, `guard` (PreToolUse), is in the same table but is not
+registered in `hooks/hooks.json`; it is D14.
 
 - **`notice`** has no matcher, so it fires again on resume, clear, compact and
   fork, which also re-injects the notice after a compaction. It prints the text
@@ -363,24 +364,42 @@ handler, `guard` (PreToolUse), is in the same table but is not registered in
   is not registered.
 - **`prune`** has the matcher `startup`, because it would otherwise run again on
   every resume, clear and compact. It calls `Registry.prune`, then sweeps the
-  guard's state directory `guard-v1` (D14): deny claims and hour slots older
-  than 30 days, with a cap on the entries it looks at and a deadline of one
-  second from the start of the hook. A failure in either sweep does not stop the
-  other. It prints nothing. The registry is unchanged: sweeping stays by file
-  age (D11).
+  guard's state directory `guard-v1` (D14) and the spawn ticket directory
+  `pending-v1` (D14). The guard's directory holds deny claims, hour slots, start
+  records and worker marks; each file older than 30 days goes. Only the two
+  guard sweeps, of the guard's state and of the spawn tickets, have a cap on the
+  entries they look at, and they share a deadline of one second from the start
+  of the hook. The note sweep of the registry (D11) has neither: it lists the
+  whole notes directory, and that listing spends the same second, so the two
+  guard sweeps may get no time and remove nothing in that start. Past two
+  seconds the alarm ends the hook, and any step not yet run ends with it. A
+  failure in one sweep does not stop the others. It prints nothing. The
+  registry's own sweep stays by file age (D11).
+- **`adopt`** has no matcher, so it fires again on resume, clear, compact and
+  fork, as `notice` does. It writes the start record of the session, the real
+  path of its start directory (D14), once. For a source other than `clear` or
+  `compact` it also takes the freshest spawn ticket of that directory as the
+  session's worker mark, by renaming it. It prints nothing and always exits 0.
+  Its bounded work: one create, one capped listing, at most 8 renames; a lost
+  mark costs at most one extra deny per repository once the guard is registered.
+  A ticket counts only when it was written at most 300 seconds before the start
+  (a ticket dated in the future counts as fresh), so a worker whose first
+  session start comes later gets no mark.
 - **Synchronous, with explicit bounds, and no `async`.** A command hook's
   default timeout is 600 seconds, so each entry sets its own: 5 seconds for
-  `notice` and 3 for `prune`. Inside the process an alarm (3 and 2 seconds) ends
-  the hook by the default action of SIGALRM before the platform's timeout does;
-  an ignored or a blocked SIGALRM is inherited across exec, so the hook resets
-  the disposition and unblocks the signal first. `async` is not used: the reference lists it with no default
-  stated, says Claude Code does not enforce a timeout on `async` hooks, and says
-  nothing about plugin hooks, so an asynchronous prune could be shown neither to
-  stay out of the way nor to be bounded. Rejected: `async: true` with a longer
-  fallback timeout. A synchronous prune costs one directory scan of one small
-  note per spawned session, once per `startup`, plus the sweep of the guard's
-  state (D14): a second scan of at most 28,800 entries under a budget of one
-  second, so the cost stays bounded.
+  `notice` and `adopt`, and 3 for `prune`. Inside the process an alarm (3
+  seconds for `notice` and `adopt`, 2 for `prune`) ends the hook by the default
+  action of SIGALRM before the platform's timeout does; an ignored or a blocked
+  SIGALRM is inherited across exec, so the hook resets the disposition and
+  unblocks the signal first. `async` is not used: the reference lists it with no
+  default stated, says Claude Code does not enforce a timeout on `async` hooks,
+  and says nothing about plugin hooks, so an asynchronous prune could be shown
+  neither to stay out of the way nor to be bounded. Rejected: `async: true` with
+  a longer fallback timeout. A synchronous prune costs one directory scan of one
+  small note per spawned session, once per `startup`, plus the sweep of the
+  guard's state and of the spawn tickets (D14): two more scans of at most 28,800
+  entries each, under a budget of one second, so those two stay bounded. The
+  note scan has no cap of its own; only the alarm bounds it.
 - **The notice is pure.** It does no file access at all, reads no environment
   variable but `CLAUDE_PLUGIN_DATA`, and uses nothing from the payload but the
   session id (accepted only if it passes the id check). SessionStart blocks the
@@ -408,10 +427,10 @@ handler, `guard` (PreToolUse), is in the same table but is not registered in
   command line shares, `silenced` in `src/jam/streams.py`), so the interpreter's
   flush at exit cannot fail again and turn exit 0 into 120. A closed stdout or
   stderr, which Python reports as `None`, is the same kind of failure and exits 0. In `prune` the registry sweep swallows `RegistryError`,
-  `InvalidRequest` and `OSError`, the guard sweep never raises for a reason on
-  disk, and an unexpected error in either is reported by its type while the other
-  sweep still runs. An unknown hook name does nothing, and no handler branches on
-  `source`, which may take values not known yet.
+  `InvalidRequest` and `OSError`, the guard sweep and the ticket sweep never raise
+  for a reason on disk, and an unexpected error in any of the three is reported by
+  its type while the others still run. An unknown hook name does nothing, and only
+  `adopt` reads `source`, which may take values not known yet.
 - **The harness package holds all of it.** The notice names Claude Code tool
   names and CLAUDE.md, and the envelope is Claude Code's, so `notice.py`,
   `hook_io.py` and `claude_hooks.py` live under `src/jam/harness/`. Within
@@ -441,6 +460,10 @@ handler, `guard` (PreToolUse), is in the same table but is not registered in
   in an interactive session, the prune running once, and the timings are still
   open (also listed under "Open verification items"). The one
   owner check is `claude --plugin-dir .` in a trusted directory, not `--bg`.
+  Still open: the worker's first session start, and the `source` it reports there,
+  are unobserved, so no live worker has shown its mark yet. The delay between
+  the spawn and that first session start must also stay within 300 seconds for
+  the mark to exist; no run has measured it.
 
 ## D14. The foreign-repository guard
 
@@ -448,13 +471,14 @@ Status: **Accepted** on 2026-10-20. The owner accepted D14-1, D14-2 and D14-3 as
 proposed and authorised the live checks; the other owner questions at the end
 hold their defaults until the owner revises them. The core of the guard is
 implemented and tested, and it is **not registered**: `hooks/hooks.json`
-declares no PreToolUse entry, so no session behaves differently. It is
-reachable only as `python3 -I scripts/jam hook guard`, and a test pins that
-nothing in `hooks/hooks.json` names it. Registering it waits for both the live
-checks under "Unverified" and the change that writes the spawn tickets and the
-`worker.<id>` marks (see "Loop protection"): until that change exists no session
-carries a mark, so a worker jam starts would be denied like any other session.
-D6 states the intent; this entry is how it works.
+declares no PreToolUse entry, so no session behaves differently. It is reachable
+only as `python3 -I scripts/jam hook guard`, and a test pins that nothing in
+`hooks/hooks.json` names it. The writers of the marks are in place (`adopt` and
+`spawn`, see "Loop protection"). Registering it waits only for the live checks
+under "Unverified", and a worker that jam starts is expected to carry its mark
+from its first session start, which is one of those checks, provided that start
+comes within 300 seconds of the spawn (D13). D6 states the intent; this entry is
+how it works.
 
 - **Event and entry.** PreToolUse, matcher `Edit|Write|MultiEdit|NotebookEdit`
   (letters and `|` only, which the platform reads as an exact-name list; never
@@ -545,36 +569,59 @@ D6 states the intent; this entry is how it works.
 
   | File | Content | Written by | Read by |
   |---|---|---|---|
-  | `start.<id>` | the session's start directory and a line feed | a later change | step 5, as the fallback |
-  | `worker.<id>` | empty | a later change | step 3 |
+  | `start.<id>` | the session's start directory and a line feed | `adopt`, once | step 5, as the fallback |
+  | `worker.<id>` | empty | `adopt`, by renaming a spawn ticket | step 3 |
+  | `pending-v1/<dir16>.<nonce16>` | empty, written by `spawn` before the harness runs | `spawn` | `adopt`, which renames the freshest one of its directory to `worker.<id>` |
   | `denied.<id>.<repo>` | empty | step 11 | steps 8 and 11 |
   | `slot.<hour>.<n>`, n below 20 | empty | step 12 | step 9 |
 
   `prune` removes deny claims and hour slots older than 30 days, with an entry
-  cap and a deadline. Ids admit dots, so every name pattern anchors the
-  fixed-width suffix. The registry of D11 is untouched: it is keyed by the
-  harness short id, which a hook cannot know. The core ships only the readers of
-  `start` and `worker`; their writers and the spawn ticket belong to the change
-  that makes use of them, which also widens what `prune` removes.
+  cap and a deadline, and `prune` also removes start records and worker marks
+  from `guard-v1` and spawn tickets from `pending-v1`, each file older than 30
+  days. A worker mark's age is its file time, which the rename keeps from the
+  spawn ticket, so the mark lasts 30 days from the spawn, not from the worker's
+  start. Ids admit dots, so every name pattern anchors the fixed-width suffix.
+  The registry of D11 is untouched: it is keyed by the harness short id, which a
+  hook cannot know. The ticket directory is keyed by `dir16`, the first 16 hex
+  digits of the SHA-256 of the real path of the start directory, so a spawn and
+  the worker's start agree on it when both spell the directory the same way
+  after realpath; on a case-insensitive file system another spelling costs a
+  lost mark, the same case limit as the repository identity above. `adopt` calls
+  the writers in `jam.claims` and `jam.tickets` for the start record and the
+  mark.
 - **Loop protection** has three layers. A session with a `worker.<id>` mark is
-  never denied; the mark is a bare file created at the worker's first
-  SessionStart by renaming a ticket that `spawn` wrote before it started the
-  worker. Independently of recognition, a denial is given at most once per
-  (session, repository) through the `O_EXCL` claim, however often the edit is
-  retried, the session resumed or the hook run in parallel, and at most 20 times
-  per clock hour on the machine through the slot files. A deny never spawns
-  anything, and a recognised worker is never denied, so a guard cannot push a
-  worker to delegate again. Per-pair memory alone does not bound a chain, since
-  every hop is a fresh session id; the hourly limit does, even when recognition
-  fails at every hop. What is not bounded is a model that spawns in a loop on its
-  own initiative, and ping-pong between peers: those belong to the skill and to
-  `SendMessage`. Every wrong assumption is benign: a stolen ticket costs one
-  missed nudge, a worker whose directory differs from the spawn directory costs
-  one extra denial per repository, and a missing data directory means the guard
-  allows everything. No environment variable carries any of this, since the
-  spawner's environment does not reach a worker (see "Plugin platform facts");
-  the guard reads only `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`,
-  `CLAUDE_CONFIG_DIR` and, for the default configuration directory, `HOME`.
+  not denied while the mark exists. The mark is a bare file created by renaming
+  a ticket that `spawn` wrote before it started the worker, at the first session
+  start in that directory within 300 seconds; it records that the session took
+  the ticket, not that jam started it. Only `clear` and `compact` skip the
+  ticket (D13). A resume takes it like a startup does: a `--bg` worker's first
+  start source is unobserved, and skipping resume would close no path, since a
+  startup takes the ticket too. The session id keeps the mark across a resume,
+  while `/clear` and a fork get a new id. The mark stays until the sweep removes
+  it, 30 days after the spawn; after that the per-pair claim and the hourly
+  limit still bound the loop. Independently of recognition, a denial is given at
+  most once per (session, repository) through the `O_EXCL` claim, however often
+  the edit is retried, the session resumed or the hook run in parallel, and at
+  most 20 times per clock hour on the machine through the slot files. A deny
+  never spawns anything, and a recognised worker is not denied while its mark
+  exists, so a guard cannot push a worker to delegate again. Per-pair memory
+  alone does not bound a chain, since every hop is a fresh session id; the
+  hourly limit does, even when recognition fails at every hop. What is not
+  bounded is a model that spawns in a loop on its own initiative, and ping-pong
+  between peers: those belong to the skill and to `SendMessage`. The wrong
+  assumptions cost different amounts. A session that takes a ticket it did not
+  spawn (a start in that directory within 300 seconds of the spawn, other than
+  `clear` and `compact`) is not denied in any repository while its mark exists,
+  which is until the sweep: it misses one nudge per repository it edits in, and
+  the permission flow is unchanged, so what is lost is the nudge, not a
+  permission. A worker gets at most one extra denial per repository when another
+  session took its ticket, when its first session start comes more than 300
+  seconds after the spawn, or when it starts in a directory other than the spawn
+  directory (D13). A missing data directory means the guard allows everything.
+  No environment variable carries any of this, since the spawner's environment
+  does not reach a worker (see "Plugin platform facts"); the guard reads only
+  `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`, `CLAUDE_CONFIG_DIR` and, for the
+  default configuration directory, `HOME`.
 - **Fail open, all of it.** Allow (print nothing, exit 0) on: stdin over 8 MiB,
   not JSON, not an object or wrong-typed fields; a path with NUL, or relative
   without an absolute working directory; an invalid session id; a data directory
@@ -595,12 +642,12 @@ D6 states the intent; this entry is how it works.
   `tempfile`, `hashlib` and the registry are imported only on the rare paths,
   and a test pins that the allow path loads none of them.
 - **Core and adapter.** The decision (`jam.guard`), the repository identity
-  (`jam.repos`), the claims (`jam.claims`), the sweep and the file checks
-  (`jam.files`) are stdlib-only and name no harness; a test pins their imports
-  and that no Claude Code word appears in them. Which tool calls are edits,
-  where the path sits in the call, the variable names and the deny envelope
-  (`hook_io.py`) are in the harness package, which wires the guard itself, as
-  D13 describes for the other hooks.
+  (`jam.repos`), the claims (`jam.claims`), the spawn tickets (`jam.tickets`),
+  the sweep and the file checks (`jam.files`) are stdlib-only and name no
+  harness; a test pins their imports and that no Claude Code word appears in
+  them. Which tool calls are edits, where the path sits in the call, the
+  variable names and the deny envelope (`hook_io.py`) are in the harness
+  package, which wires the guard itself, as D13 describes for the other hooks.
 - **Unverified, and to be checked in a real session before registration:**
   PreToolUse firing inside a `--bg` worker (inferred from PostToolUse having
   fired there and from the documentation of agent view, not observed); the values
@@ -609,6 +656,13 @@ D6 states the intent; this entry is how it works.
   documentation is silent); and that the model re-issues a denied edit at all,
   which nothing in the documentation promises (the re-issued edit passes only
   because of the claim file).
+- **The worker's first session start.** Still to be observed on a real `--bg`
+  spawn, followed by `stop`, `rm` and a re-list, under the authorisation of
+  owner question 9: the worker's first session start reports a directory that
+  resolves to the spawn directory (the same `dir16`), that start lands within
+  300 seconds of the ticket's write, and `guard-v1/worker.<id>` exists
+  afterwards with the ticket gone. The `source` it reports is recorded too,
+  since any value other than `clear` or `compact` claims the mark.
 - **Rejected.** An environment counter, which does not reach workers. A registry
   note keyed by the short id: it would be written after the spawn returns, which
   is the race of D6, and a hook cannot derive the short id. A marker in the spawn
@@ -621,18 +675,20 @@ D6 states the intent; this entry is how it works.
   background orchestrators. A machine-wide limit of 6 per 600 s, too tight for
   normal work with several sessions. Taking the working directory of the call as
   the start directory.
-- **Peers (D10).** The mark is a provenance flag fixed at creation. It is not a
-  depth, a role or a parent link, no spawner id is stored, and a peer message
-  cannot change it, so sessions stay flat.
+- **Peers (D10).** The mark is a flag that records the ticket was taken, fixed
+  at creation. It is not a depth, a role or a parent link, no spawner id is
+  stored, and a peer message cannot change it, so sessions stay flat.
 - **Owner questions.** Answered on 2026-10-20: D14-1, D14-2, D14-3 and item 9
   accepted as proposed. The others hold their defaults until the owner revises
   them. Each default below is one isolated constant or one clause of
   `jam.guard`, marked with its number, and a test names it. D14-2 is the
   exception: its two clauses (steps 9 and 12) go together, with the throttle's
   members of `Effects` and `Claims`.
-  1. D14-1 (accepted), worker exemption: a session started through `spawn` is never denied,
-     recognised by the pre-spawn ticket (step 3). This revises D6's preference
-     for a marker in the prompt. Alternative: a hop budget carried in the ticket,
+  1. D14-1 (accepted), worker exemption: a session that took a spawn ticket
+     written by `spawn` is not denied, recognised by the mark that the ticket
+     became (step 3). The exemption lasts while the mark exists; the 30-day
+     sweep ends it (see the state paragraph). This revises D6's preference for a
+     marker in the prompt. Alternative: a hop budget carried in the ticket,
      which keeps the nudge inside delegated chains at the cost of more state.
   2. D14-2 (accepted), throttle: 20 denials per clock hour on the machine (steps 9 and 12,
      over `SLOTS_PER_HOUR`). It is a named departure from "exactly once per
@@ -664,14 +720,15 @@ D6 states the intent; this entry is how it works.
      should mention the guard once it is registered (default: no).
   8. D14-8, approval of the fixed product text the model reads: the deny reason
      and the notice.
-  9. Authorisation (granted) for the live checks listed under "Unverified", and for the
-     check of `claude --bg --session-id` in "Open verification items", each real
-     spawn followed by `stop`, `rm` and a re-list.
-  10. Shape of the work: this core merges without registering anything; the
-      change that registers the hook is separate and waits for both the checks
-      above and the change that writes the spawn tickets and the `worker.<id>`
-      marks, because without that change a worker jam starts would be denied
-      like any other session.
+  9. Authorisation (granted) for the live checks listed under "Unverified", and
+     for the check of `claude --bg --session-id` in "Plugin platform facts". The
+     `--session-id` check was answered on 2026-10-21: the flag is ignored under
+     `--bg`. Each real spawn is followed by `stop`, `rm` and a re-list.
+  10. Shape of the work: the core merged without registering anything. The
+      writers of the spawn tickets and the `worker.<id>` marks are now in place
+      (D13, `adopt`), so the change that registers the hook waits only for the
+      live checks above. Until a live worker has shown its mark, nothing confirms
+      that a worker that jam starts escapes the denial.
 
 ## Plugin platform facts
 
@@ -776,7 +833,7 @@ checked against the release notes for
 - **Background session commands (observed on 2.1.300).** `claude --bg [-n
   name] [--permission-mode mode] -- <prompt>` prints `backgrounded · <id> ·
   <name>` (with terminal colors) and exits 0; the `--` makes a prompt that
-  starts with a dash safe. The id is the first 8 characters of `sessionId`.
+  starts with a dash safe.
   `claude agents --json` rows have `id`, `sessionId`, `name`, `cwd`, `kind`,
   `startedAt`, `state`, and, while the session runs, `pid` and `status`
   (`busy` or `idle`). `claude stop` removes a session from that plain listing
@@ -787,6 +844,14 @@ checked against the release notes for
   interactive sessions, but only background ones have been seen. A session's
   transcript is a JSONL file in the project directory named after its
   `sessionId`; `claude logs` shows only a terminal redraw.
+- **`--session-id` under `--bg` (verified by experiment, 2026-10-21, Claude Code
+  2.1.300).** Passing `--session-id <uuid>` to `claude --bg` does not fix the
+  session's id: the command prints `warning: --bg manages the session id;
+  ignoring --session-id`, and the session gets the id the platform assigns. The
+  short id in the `backgrounded` line was the first 8 characters of `sessionId`
+  in the one observation so far; that is one observation and is not relied on.
+  jam takes the short id from the spawn output and never derives it from
+  `sessionId` (D12).
 - **Install from the public repository (verified by experiment).** With the
   manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered
   a marketplace named `jam` and `claude plugin install jam@jam` installed the
@@ -864,11 +929,9 @@ checked against the release notes for
   checks the full listing and reports a session that is still there.
 - Interactive (foreground) sessions: do they appear in `claude agents --json`,
   and can a worker's message wake one?
-- Does `claude --bg --session-id <uuid>` keep the id it is given? If so, the
-  spawner can write a note before the session starts, which closes the race in
-  D6. It needs a real spawn in a trusted directory to find out.
-- The four unverified points of D14 (PreToolUse inside a `--bg` worker, the
-  values of `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` there and after a
-  resume, a JSON denial under `bypassPermissions`, and the model re-issuing a
-  denied edit). Each needs a real session, which the change that added the guard
-  core did not start (D14).
+- The unverified points of D14 (PreToolUse inside a `--bg` worker, the values of
+  `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` there and after a resume, a JSON
+  denial under `bypassPermissions`, the model re-issuing a denied edit, and the
+  worker's first session start and the mark it leaves). Each needs a real
+  session, which the changes that added the guard core and the marks did not
+  start (D14).

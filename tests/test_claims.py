@@ -1,7 +1,7 @@
 """Tests for the guard's state files: create-once deny claims, the hour slots, and the readers of the marks other code writes.
 
 Real temp directories throughout. The writers of the start record and the worker
-mark are not part of this change, so the tests plant those files by hand.
+mark are tested in test_start_marks.py, so these tests plant those files by hand.
 """
 
 from __future__ import annotations
@@ -321,26 +321,26 @@ class ReaderTest(ClaimsTestCase):
 
 
 class ClaimNameTest(unittest.TestCase):
-    def test_deny_claims_and_hour_slots_are_claim_names(self):
+    def test_deny_claims_and_hour_slots_are_state_names(self):
         for name in (f"denied.{SID}.{REPO}", "denied.a.b.c." + REPO, "denied.a." + REPO, "slot.490000.0", "slot.490000.19", "slot.0.7"):
             with self.subTest(name=name):
-                self.assertTrue(claims.is_claim_name(name))
+                self.assertTrue(claims.is_state_name(name))
 
     def test_the_fixed_width_suffix_is_anchored_so_dots_in_the_session_id_do_not_confuse_it(self):
-        self.assertTrue(claims.is_claim_name(f"denied.{'a.' * 20}b.{REPO}"))
-        self.assertFalse(claims.is_claim_name(f"denied.a.b.{REPO}0"))
-        self.assertFalse(claims.is_claim_name(f"denied.a.b.{REPO[:-1]}"))
-        self.assertFalse(claims.is_claim_name(f"denied.a.b.{REPO.upper()}"))
-        self.assertFalse(claims.is_claim_name(f"denied.{REPO}"))
+        self.assertTrue(claims.is_state_name(f"denied.{'a.' * 20}b.{REPO}"))
+        self.assertFalse(claims.is_state_name(f"denied.a.b.{REPO}0"))
+        self.assertFalse(claims.is_state_name(f"denied.a.b.{REPO[:-1]}"))
+        self.assertFalse(claims.is_state_name(f"denied.a.b.{REPO.upper()}"))
+        self.assertFalse(claims.is_state_name(f"denied.{REPO}"))
 
-    def test_anything_else_in_the_directory_is_not(self):
+    def test_anything_else_in_the_directory_is_not_a_state_name(self):
         for name in (
             "", "notes.txt", f"denied.{SID}", f"denied..{REPO}", f"denied.-x.{REPO}", f"denied.a/b.{REPO}", f"denied.{'x' * 65}.{REPO}",
             f"denied.{SID}.{REPO}\n", f"xdenied.{SID}.{REPO}", f"denied.{SID}.{REPO}.tmp",
             "slot.1", "slot.x.1", "slot.1.x", "slot.1.100", "slot..1", "slot.1.2\n", "slot.1.2.3", ".slot.1.2",
         ):
             with self.subTest(name=name):
-                self.assertFalse(claims.is_claim_name(name))
+                self.assertFalse(claims.is_state_name(name))
 
 
 class StateDirTest(unittest.TestCase):

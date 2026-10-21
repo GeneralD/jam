@@ -1,16 +1,19 @@
-"""The service that composes a harness with the registry. Stdlib only.
+"""The service that composes a harness with the registry and the spawn tickets. Stdlib only.
 
 The harness decides which sessions exist; the registry only annotates them. A
 registry failure therefore never hides a harness result: after a spawn the
-session id is always returned, and a listing degrades to un-annotated rows.
+session id is always returned, and a listing degrades to un-annotated rows. The
+spawn ticket follows the same rule: a ticket that cannot be written is reported
+next to the result and never stops the spawn.
 """
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
 
 from .errors import RegistryError
 from .registry import Record, Registry, spawned_marked
@@ -27,10 +30,29 @@ class Harness(Protocol):
     def stop(self, session_id: str) -> Session | None: ...
 
 
+class TicketWriter(Protocol):
+    def issue(self, cwd: str | Path) -> str | None: ...
+
+    def withdraw(self, ticket: str) -> None: ...
+
+
+class NoTickets:
+    """The ticket writer of a Jam that is given no ticket directory: it writes nothing and withdraws nothing."""
+
+    def issue(self, cwd: str | Path) -> str | None:
+        return None
+
+    def withdraw(self, ticket: str) -> None:
+        return None
+
+
+NO_TICKETS: Final = NoTickets()
+
+
 @dataclass(frozen=True)
 class SpawnResult:
     spawned: Spawned
-    problem: str | None  # set when the session started but jam could not note it
+    problem: str | None  # set when the session started but jam could not note it or mark it
 
 
 @dataclass(frozen=True)
@@ -56,21 +78,29 @@ def failure_reason(exc: Exception) -> str:
 
 
 class Jam:
-    def __init__(self, harness: Harness, registry: Registry):
+    def __init__(self, harness: Harness, registry: Registry, tickets: TicketWriter = NO_TICKETS):
         self._harness = harness
         self._registry = registry
+        self._tickets = tickets
 
     def spawn(
         self, cwd: str | Path, prompt: str, name: str | None = None, permission_mode: str | None = None
     ) -> SpawnResult:
-        """Start a session, then note that jam started it.
+        """Write the spawn ticket, start a session, then note that jam started it.
 
-        Harness failures propagate and nothing is noted. Once the session exists,
-        no registry failure may hide its id, and the registry lock is never held
-        while the harness runs.
+        The ticket exists before the harness runs, so the session's first start can
+        claim it, and it is withdrawn when the harness raises. Harness failures
+        propagate and nothing is noted. Once the session exists, no registry or
+        ticket failure may hide its id, and the registry lock is never held while
+        the harness runs.
         """
-        spawned = self._harness.spawn(cwd, prompt, name, permission_mode)
-        return SpawnResult(spawned, self._recorded(spawned.id))
+        ticket, ticket_error = self._issued(cwd)
+        try:
+            spawned = self._harness.spawn(cwd, prompt, name, permission_mode)
+        except BaseException:
+            self._withdrawn(ticket)
+            raise
+        return SpawnResult(spawned, _joined_problems(_ticket_problem(ticket_error, spawned.id), self._recorded(spawned.id)))
 
     def list(self, include_exited: bool = False, cwd: str | None = None) -> Listing:
         sessions = self._harness.list(include_exited, cwd)
@@ -84,6 +114,21 @@ class Jam:
         # A stopped session stays in the full listing, so its note stays true.
         return self._harness.stop(session_id)
 
+    def _issued(self, cwd: str | Path) -> tuple[str | None, Exception | None]:
+        """The ticket written for `cwd` and None, or None and the error that kept it from being written. Never raises."""
+        try:
+            return self._tickets.issue(cwd), None
+        except Exception as exc:  # noqa: BLE001
+            # Deliberately broad: a ticket that cannot be written must not stop the spawn. The error is kept for the problem text, which names only its type unless it is a RegistryError.
+            return None, exc
+
+    def _withdrawn(self, ticket: str | None) -> None:
+        """Remove the ticket of a spawn that did not start. A failure to do so is ignored: the harness error is the one the caller needs."""
+        if ticket is None:
+            return
+        with contextlib.suppress(Exception):  # noqa: BLE001 - the harness error is raised instead
+            self._tickets.withdraw(ticket)
+
     def _recorded(self, session_id: str) -> str | None:
         try:
             self._registry.update(session_id, spawned_marked)
@@ -94,3 +139,16 @@ class Jam:
             # the caller would then respawn. The exception type is kept in the text.
             return f"could not record {session_id}: {failure_reason(exc)}"
         return None
+
+
+def _ticket_problem(error: Exception | None, session_id: str) -> str | None:
+    """The problem for a ticket that could not be written, named by the session id that is known only after the spawn; None when it was written."""
+    if error is None:
+        return None
+    return f"could not mark {session_id} as started by jam: {failure_reason(error)}"
+
+
+def _joined_problems(*problems: str | None) -> str | None:
+    """The problems that are there, in the order given and joined by "; ", or None when there are none."""
+    found = [problem for problem in problems if problem is not None]
+    return "; ".join(found) if found else None
