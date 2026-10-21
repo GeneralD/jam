@@ -79,17 +79,18 @@ class DispatchTest(unittest.TestCase):
                 result = run(*argv)
                 self.assertEqual((result.code, result.out, result.err, result.alarms), (0, "", "", []))
 
-    def test_the_table_holds_exactly_the_three_hooks(self):
-        self.assertEqual(sorted(hooks.HOOKS), ["guard", "notice", "prune"])
+    def test_the_table_holds_exactly_the_four_handlers(self):
+        self.assertEqual(sorted(hooks.HOOKS), ["adopt", "guard", "notice", "prune"])
 
     def test_each_hook_arms_its_own_alarm_and_cancels_it_at_the_end(self):
         self.assertEqual(run("notice").alarms, [3, 0])
         self.assertEqual(run("prune").alarms, [2, 0])
         self.assertEqual(run("guard").alarms, [2, 0])
+        self.assertEqual(run("adopt").alarms, [3, 0])
 
     def test_the_session_start_hooks_keep_the_session_start_envelope_and_the_default_cap_and_the_guard_has_its_own(self):
         hook_io = lazy("jam.harness.hook_io")
-        for name in ("notice", "prune"):
+        for name in ("notice", "prune", "adopt"):
             self.assertEqual((hooks.HOOKS[name].envelope, hooks.HOOKS[name].stdin_cap), (hook_io.hook_output, hook_io.MAX_STDIN))
         self.assertEqual((hooks.HOOKS["guard"].envelope, hooks.HOOKS["guard"].stdin_cap), (hook_io.denial_output, hook_io.MAX_EDIT_STDIN))
 
@@ -152,14 +153,14 @@ class FailOpenTest(unittest.TestCase):
         def boom(payload, env):
             raise RuntimeError("secret detail in /some/private/path")
 
-        for name in ("notice", "prune"):
+        for name in ("notice", "prune", "adopt"):
             with self.subTest(hook=name), mock.patch.dict(hooks.HOOKS, {name: hooks.Hook(boom, 3)}):
                 result = run(name)
                 self.assertEqual((result.code, result.out, result.err), (0, "", "RuntimeError\n"))
                 self.assertEqual(result.alarms, [3, 0])
 
     def test_the_exit_code_is_never_two_the_blocking_one(self):
-        for argv in (("notice",), ("prune",), ("guard",), ("bogus",), ()):
+        for argv in (("notice",), ("prune",), ("adopt",), ("guard",), ("bogus",), ()):
             for stdin in BAD_STDIN.values():
                 self.assertEqual(run(*argv, stdin=stdin).code, 0)
 
@@ -209,7 +210,7 @@ class EnvironmentReadsTest(unittest.TestCase):
     """One of the CLAUDE_* session variables is a credential; a hook reads the data dir variable and nothing else."""
 
     def test_each_hook_reads_only_the_data_dir_variable(self):
-        for name in ("notice", "prune"):
+        for name in ("notice", "prune", "adopt"):
             with self.subTest(hook=name), tempfile.TemporaryDirectory() as scratch:
                 env = RecordingEnv({DATA_VAR: os.path.join(scratch, "data"), "CLAUDE_CODE_SESSION_ACCESS_TOKEN": "planted-token", "CLAUDE_CODE_SESSION_ID": SESSION_ID, "CLAUDE_PLUGIN_ROOT": "/elsewhere"})
                 result = run(name, env=env)

@@ -1,18 +1,23 @@
-"""The guard's state files: create-once deny claims, hour slots, and the readers of two marks other code writes.
+"""The guard's state files: create-once deny claims, hour slots, the start record of a session and its worker mark.
 
 Everything lives in one directory under the plugin data directory. A claim is an
 empty file created with `O_EXCL`, so of any number of racing creators exactly one
 wins, with no lock, no polling and no read-modify-write. Nothing is ever
 updated. The files are disposable: a missing one only means one more nudge, and
-only the age of a file decides when it is swept (see `is_claim_name`).
+only the age of a file decides when it is swept (see `is_state_name`).
+
+The start record is written once per session by the session start, and the
+worker mark is made by moving a spawn ticket (see `tickets`) into place: a hard
+link, then the removal of the ticket, so that a mark is never replaced. The
+guard reads both as facts about the session.
 
 Nothing here raises. A data directory that is missing, relative or not writable,
 a state directory that is not a real directory (a link in its place would carry
-every claim and every read to wherever it points), and an id or key that is not
-safe in a file name, all answer "no claim" or "no record", which the guard reads
-as "stay quiet": a guard that cannot remember what it has said must not speak.
-The data directory above the state directory belongs to the platform and is not
-checked; the check that guards the state directory is `files.real_directory`.
+every claim, every record and every read to wherever it points), and an id or key
+that is not safe in a file name, all answer "no claim" or "no record", which the
+guard reads as "stay quiet": a guard that cannot remember what it has said must
+not speak. The data directory above the state directory belongs to the platform
+and is not checked; the check that guards the state directory is `files.real_directory`.
 
 macOS and Linux only. Stdlib only and cheap to import: this module is on the path
 of every edit.
@@ -20,49 +25,54 @@ of every edit.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import stat
 from typing import Final, Optional
 
-from .files import read_small, real_directory
+from .files import absolute_path, created, ensured, read_small, real_directory, subdirectory
 from .session import ID_PATTERN, is_id
 
 STATE_DIR: Final = "guard-v1"
 SLOTS_PER_HOUR: Final = 20  # the machine-wide limit of denies in one clock hour
-MAX_RECORD: Final = 4096 + 1  # a path of at most 4096 bytes and its line feed
+MAX_RECORD: Final = 4096  # the start record in all: a path of at most 4095 bytes and its line feed
 
 _KEY = re.compile(r"[0-9a-f]{16}")
 # The fixed-width suffix is what keeps a session id with dots unambiguous: ids admit dots, the key never has any.
 _CLAIM_NAME = re.compile(rf"denied\.(?:{ID_PATTERN.pattern})\.[0-9a-f]{{16}}|slot\.[0-9]+\.[0-9]{{1,2}}")
+_MARK_NAME = re.compile(rf"(?:start|worker)\.(?:{ID_PATTERN.pattern})")
 
 
 def state_dir(data_dir: object) -> Optional[str]:
     """The guard's directory below an absolute data directory, or None for anything else (a relative path would follow the working directory)."""
-    path = os.fspath(data_dir) if isinstance(data_dir, (str, os.PathLike)) else None
-    if not isinstance(path, str) or "\0" in path or not os.path.isabs(path):
-        return None
-    return os.path.join(path, STATE_DIR)
+    return subdirectory(data_dir, STATE_DIR)
 
 
-def is_claim_name(name: object) -> bool:
-    """True for the name of a deny claim or an hour slot: the files that pile up and are swept by age."""
-    return isinstance(name, str) and _CLAIM_NAME.fullmatch(name) is not None
+def is_state_name(name: object) -> bool:
+    """True for the name of a file the guard keeps: a deny claim, an hour slot, a start record or a worker mark. The sweep removes these by age."""
+    return isinstance(name, str) and (_CLAIM_NAME.fullmatch(name) is not None or _MARK_NAME.fullmatch(name) is not None)
 
 
 class Claims:
     def __init__(self, data_dir: object):
-        """Remember where the files live. Does no I/O: directories appear on the first claim, and an unusable `data_dir` makes every method answer "nothing"."""
+        """Remember where the files live. Does no I/O: directories appear on the first write, and an unusable `data_dir` makes every method answer "nothing"."""
         self._dir = state_dir(data_dir)
 
     def worker_marked(self, session_id: object) -> bool:
-        """True when the session carries the mark of a session that was started on purpose. Two lstats, one of the state directory; written by other code."""
-        return self._exists(_named("worker", session_id))
+        """True when the session carries the mark of a session that took a spawn ticket. Two lstats: one of the state directory, one of the mark.
+
+        Only a regular file counts: a link, a directory or anything else under the
+        name is no mark, so the guard does not exempt the session for it.
+        """
+        found = self._entry(_named("worker", session_id))
+        return found is not None and stat.S_ISREG(found.st_mode)
 
     def start_recorded(self, session_id: object) -> Optional[str]:
         """The directory the session started in, as recorded, or None when there is no complete record of an absolute path.
 
         A record counts only when it ends with its line feed, so a half-written
-        one reads as absent. Written by other code.
+        one reads as absent. Written by `record_start`.
         """
         name = _named("start", session_id)
         directory = None if name is None else self._looked_in()
@@ -72,6 +82,45 @@ class Claims:
             return _path_line(read_small(os.path.join(directory, name), MAX_RECORD))
         except OSError:
             return None
+
+    def record_start(self, session_id: object, directory: object) -> bool:
+        """Create the start record of the session: the real path of `directory` and a line feed. True only for the call that wrote it.
+
+        A record that is there already is kept as it is. A directory that is not an
+        absolute path the file system can name, or whose record would not fit in `MAX_RECORD` bytes, writes
+        nothing and creates nothing, and so does an id that is not safe in a file name.
+        """
+        name = _named("start", session_id)
+        record = _record(directory)
+        return name is not None and record is not None and self._claimed([name], record)
+
+    def mark_worker(self, session_id: object, source: object) -> Optional[bool]:
+        """Move the spawn ticket at `source` into place as the worker mark of the session.
+
+        The move is a hard link to the mark's name, which never replaces a mark that
+        is there already and keeps the ticket's file time, then the removal of the
+        ticket. Two sessions can link the same ticket; the one whose removal finds
+        it gone lost it, and takes its own link back.
+
+        True when this call moved it. False when the ticket is gone, because another
+        session took it first. None when nothing could be done: the session has a
+        mark already, a bad id or source, a state directory that cannot be used, or
+        any other failure.
+        """
+        name = _named("worker", session_id)
+        if name is None or absolute_path(source) is None:
+            return None
+        directory = self._ensured()
+        if directory is None:
+            return None
+        mark = os.path.join(directory, name)
+        try:
+            os.link(source, mark, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        except OSError:  # a mark that is there already among them: it is kept as it is
+            return None
+        return _ticket_removed(source, mark)
 
     def pair_claimed(self, session_id: object, key: object) -> bool:
         """True when this session has already been denied for the repository with this key. A read; it claims nothing."""
@@ -100,38 +149,31 @@ class Claims:
         return self._dir if self._dir is not None and real_directory(self._dir) else None
 
     def _exists(self, name: Optional[str]) -> bool:
+        return self._entry(name) is not None
+
+    def _entry(self, name: Optional[str]) -> Optional[os.stat_result]:
+        """What lstat says of `name` in the state directory, or None when there is nothing to look at."""
         directory = None if name is None else self._looked_in()
         if directory is None or name is None:
-            return False
+            return None
         try:
-            os.lstat(os.path.join(directory, name))
+            return os.lstat(os.path.join(directory, name))
         except OSError:  # absent, or not to be looked at: either way nothing is known to exist
-            return False
-        return True
+            return None
 
-    def _claimed(self, names: list[str]) -> bool:
-        """Create the first of `names` that does not exist yet. True only when this call created it."""
-        if self._dir is None or not names:
+    def _claimed(self, names: list[str], data: bytes = b"") -> bool:
+        """Create the first of `names` that does not exist yet, holding `data`. True only when this call created it."""
+        if not names:
             return False
-        directory = self._ensured(self._dir)
+        directory = self._ensured()
         if directory is None:
             return False
-        for name in names:
-            outcome = _created(os.path.join(directory, name))
-            if outcome is not False:  # created, or failed in a way that makes the next name no better
-                return outcome is True
-        return False
+        outcomes = (created(os.path.join(directory, name), data) for name in names)
+        return next((outcome for outcome in outcomes if outcome is not False), False) is True  # a failure makes the next name no better
 
-    @staticmethod
-    def _ensured(directory: str) -> Optional[str]:
-        # One call per level: makedirs applies `mode` to the last level only, so the data directory
-        # would otherwise follow the umask. Ancestors above it belong to the platform and are left alone.
-        try:
-            for level in (os.path.dirname(directory), directory):
-                os.makedirs(level, mode=0o700, exist_ok=True)
-        except OSError:
-            return None
-        return directory if real_directory(directory) else None  # makedirs accepts a link to a directory; claims are never made through one
+    def _ensured(self) -> Optional[str]:
+        """The state directory, made when it is missing; None when there is none that is a real directory."""
+        return None if self._dir is None else ensured(self._dir)
 
 
 def _named(kind: str, session_id: object) -> Optional[str]:
@@ -151,16 +193,29 @@ def _slots(hour: object) -> list[str]:
     return [f"slot.{hour}.{number}" for number in range(SLOTS_PER_HOUR)]
 
 
-def _created(path: str) -> Optional[bool]:
-    """Create `path` as an empty private file: True if this call made it, False if it was there, None if it cannot be made."""
+def _ticket_removed(source: str, mark: str) -> Optional[bool]:
+    """Remove the ticket that was just linked as `mark`: True when this call removed it.
+
+    When the removal fails, the link is taken back. False when the ticket was gone,
+    because another session that linked it too removed it first; None for any other
+    failure, which leaves the ticket for a later start.
+    """
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    except FileExistsError:
-        return False
-    except OSError:
-        return None
-    os.close(fd)
+        os.unlink(source)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            os.unlink(mark)
+        return False if isinstance(exc, FileNotFoundError) else None
     return True
+
+
+def _record(directory: object) -> Optional[bytes]:
+    """The start record for `directory`: its real path and a line feed, or None when it is not an absolute path the file system can name or would not fit in MAX_RECORD bytes."""
+    path = absolute_path(directory)
+    if path is None:
+        return None
+    record = os.fsencode(os.path.realpath(path)) + b"\n"
+    return record if len(record) <= MAX_RECORD else None
 
 
 def _path_line(data: Optional[bytes]) -> Optional[str]:

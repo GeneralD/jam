@@ -151,17 +151,16 @@ class WiringTest(PruneGuardTestCase):
             before = time.monotonic()
             self.pruned()
             after = time.monotonic()
-        (call,) = swept.call_args_list
-        given = signature.bind(*call.args, **call.kwargs).arguments
+        (given,) = [signature.bind(*call.args, **call.kwargs).arguments for call in swept.call_args_list if Path(call.args[0]) == self.state]
         self.assertEqual(given["directory"], str(self.state))
-        self.assertIs(given["accept"], claims.is_claim_name)
+        self.assertIs(given["accept"], claims.is_state_name)
         self.assertEqual(given["max_age"], registry.STALE_AFTER)
         self.assertLess(abs(given["now"] - time.time()), 60)
-        self.assertEqual(given["limit"], hooks.GUARD_SWEEP_LIMIT)
+        self.assertEqual(given["limit"], hooks.SWEEP_LIMIT)
         self.assertTrue(before + hooks.PRUNE_BUDGET <= given["deadline"] <= after + hooks.PRUNE_BUDGET)
 
     def test_the_cap_covers_everything_the_throttle_lets_pile_up_in_thirty_days_and_the_budget_is_below_the_alarm(self):
-        self.assertGreaterEqual(hooks.GUARD_SWEEP_LIMIT, claims.SLOTS_PER_HOUR * 24 * 30)
+        self.assertGreaterEqual(hooks.SWEEP_LIMIT, claims.SLOTS_PER_HOUR * 24 * 30)
         self.assertLess(hooks.PRUNE_BUDGET, hooks.HOOKS["prune"].alarm)
         self.assertEqual(self.pruned().alarms, [2, 0])
 

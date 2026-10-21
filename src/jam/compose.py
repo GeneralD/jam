@@ -1,4 +1,4 @@
-"""The composition root: the one place that picks the Claude Code adapter and the registry.
+"""The composition root: the one place that picks the Claude Code adapter, the registry and the spawn tickets.
 
 Everything here is lazy. Building a Runtime does no I/O, and neither does the
 factory it holds until the core is used, because the platform may start the MCP
@@ -18,6 +18,7 @@ from .harness.claude import ClaudeHarness, Runner
 from .operations import Runtime
 from .registry import Registry
 from .service import Jam
+from .tickets import Tickets
 
 PLUGIN_ROOT: Final = Path(__file__).resolve().parent.parent.parent
 MANIFEST: Final = Path(".claude-plugin") / "plugin.json"
@@ -56,7 +57,7 @@ def build_runtime(data_dir_flag: Optional[str], env: Mapping[str, str], runner: 
     """A Runtime over the real adapter. `runner` is the seam that keeps tests from starting sessions."""
     directory = claude_env.data_dir(data_dir_flag, env)
     return Runtime(
-        lambda: Jam(ClaudeHarness(runner=runner), registry_for(directory)),
+        lambda: Jam(ClaudeHarness(runner=runner), registry_for(directory), Tickets(directory)),
         lambda: claude_env.identity(env),
     )
 

@@ -7,17 +7,22 @@ printed, without the session id, and the guard stays silent. Only a crash, the
 alarm or a vanished reader leave no output, and the alarm ends a hung hook by
 signal, so that exit status is not 0.
 
-Three hooks, all synchronous, all bounded by an in-process alarm that goes off
-before the platform's timeout: the one in hooks/hooks.json for `notice` and
-`prune`, and for `guard`, which has no entry there yet, the one its entry will
-declare (a test holds the alarm below it):
+Four handlers, three registered, all synchronous, all bounded by an in-process
+alarm that goes off before the platform's timeout: the one in hooks/hooks.json for
+`notice`, `prune` and `adopt`, and for `guard`, which has no entry there yet, the one
+its entry will declare (a test holds the alarm below it):
 
 - `notice` (SessionStart) prints the notice. It does no file access at all, so a
   stuck disk cannot delay the first response and a bug in `prune` cannot cost
   the notice.
 - `prune` (SessionStart) sweeps stale notes from the registry, and stale deny
-  claims and hour slots from the guard's state, and prints nothing. A failure in
-  one sweep does not stop the other.
+  claims, hour slots, start records, worker marks and spawn tickets, and prints
+  nothing. Only the two guard sweeps are capped and share the one-second budget;
+  the note sweep has neither, so only the alarm bounds it. A failure in one sweep
+  does not stop the others.
+- `adopt` (SessionStart) records the directory the session started in and, unless
+  the session continues one it already had (`clear` or `compact`), takes the spawn
+  ticket of that directory as the session's worker mark. It prints nothing.
 - `guard` (PreToolUse) denies, once per session and repository, an edit of a
   file in a repository other than the one the session started in (D6, D14). It
   is implemented and tested but not registered in hooks/hooks.json, so no
@@ -48,10 +53,13 @@ from . import claude_env, hook_io, notice
 # No resolve() here: the launcher already hands over a resolved src path, and a path lookup must not run before the alarm or inside the notice.
 PLUGIN_ROOT: Final = Path(__file__).parents[3]
 
-# What `prune` may spend on the guard's files. The cap covers what the throttle lets pile up in thirty days (20 slots an hour) with room for the deny
-# claims, and the budget, counted from the start of the hook, leaves the rest of the alarm for the registry sweep and for exiting.
-GUARD_SWEEP_LIMIT: Final = 20 * 24 * 30 * 2
+# What `prune` may spend on each directory it sweeps (the guard's state and the spawn tickets), counted in entries looked at. The guard's figure is
+# 20 slots an hour for thirty days, doubled, with room for the deny claims; the ticket directory has no throttle, so there it is a bound only.
+SWEEP_LIMIT: Final = 20 * 24 * 30 * 2
+# The budget, counted from the start of the hook, leaves the rest of the alarm for the sweeps and for exiting.
 PRUNE_BUDGET: Final = 1.0
+# The sources that continue a session already started: they keep its mark, if it has one, and take no spawn ticket.
+RESUMED: Final = ("clear", "compact")
 
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.
 Handler = Callable[[dict[str, Any], Mapping[str, str]], Optional[str]]
@@ -64,10 +72,11 @@ def notice_text(payload: dict[str, Any], env: Mapping[str, str]) -> str:
 
 
 def prune(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
-    """Delete notes and guard files older than the age limit; nothing to say, whatever happens.
+    """Delete notes, guard files and spawn tickets older than the age limit; nothing to say, whatever happens.
 
-    Both sweeps always run. The guard sweep comes second and sits in a `finally`,
-    so a bug in the first cannot keep it from running, and the bug is still reported.
+    The three sweeps always run, in the order notes, guard files, tickets. Each one
+    sits in a `finally` of the one before, so a bug in one cannot keep the next from
+    running, and the bug is still reported.
     """
     directory = claude_env.data_dir(None, env)
     if directory is None:
@@ -76,7 +85,10 @@ def prune(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
     try:
         _notes_pruned(directory)
     finally:
-        _guard_files_pruned(directory, deadline)
+        try:
+            _guard_files_pruned(directory, deadline)
+        finally:
+            _tickets_pruned(directory, deadline)
     return None
 
 
@@ -88,13 +100,54 @@ def _notes_pruned(directory: str) -> None:
 
 
 def _guard_files_pruned(directory: str, deadline: float) -> None:
-    from .. import claims, sweep
+    from .. import claims
+
+    _swept(claims.state_dir(directory), claims.is_state_name, deadline)  # None for a relative path, which would follow the working directory
+
+
+def _tickets_pruned(directory: str, deadline: float) -> None:
+    from .. import tickets
+
+    _swept(tickets.pending_dir(directory), tickets.is_ticket_name, deadline)  # None for a relative path, which would follow the working directory
+
+
+def _swept(swept_dir: Optional[str], accept: Callable[[str], bool], deadline: float) -> None:
+    """Sweep `swept_dir` by `accept` and the registry's age limit; nothing to do when there is no such directory."""
+    from .. import sweep
     from ..registry import STALE_AFTER
 
-    state = claims.state_dir(directory)  # None for a relative path, which would follow the working directory
-    if state is None:
+    if swept_dir is None:
         return
-    sweep.swept(state, claims.is_claim_name, STALE_AFTER, time.time(), GUARD_SWEEP_LIMIT, deadline)
+    sweep.swept(swept_dir, accept, STALE_AFTER, time.time(), SWEEP_LIMIT, deadline)
+
+
+def adopt(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
+    """Record the directory the session started in, then take the spawn ticket of that directory as the session's worker mark.
+
+    The record comes first and the mark is taken in a `finally`: a failure in the
+    record does not cost the mark, and a failure in the mark is still reported
+    after the record is written.
+    """
+    directory = claude_env.data_dir(None, env)
+    if directory is None:
+        return None
+    from .. import claims
+
+    session_id, cwd = payload.get("session_id"), payload.get("cwd")
+    try:
+        claims.Claims(directory).record_start(session_id, cwd)
+    finally:
+        _mark_taken(directory, session_id, cwd, payload.get("source"))
+    return None
+
+
+def _mark_taken(directory: str, session_id: object, cwd: object, source: object) -> None:
+    """Take the freshest spawn ticket of `cwd` as the mark of the session, unless the source says the session continues one it already had."""
+    from .. import tickets
+
+    if source in RESUMED:
+        return
+    tickets.claim_mark(directory, session_id, cwd, time.time())
 
 
 # The tool calls that edit a file, and the input fields that name it, in the order they are tried.
@@ -172,6 +225,7 @@ class Hook:
 
 
 HOOKS: Final = {
+    "adopt": Hook(adopt, 3),
     "notice": Hook(notice_text, 3),
     "prune": Hook(prune, 2),
     "guard": Hook(edit_denial, 2, hook_io.denial_output, hook_io.MAX_EDIT_STDIN),

@@ -1,7 +1,8 @@
-"""Two small checks on paths that someone else may have planted: a bounded read of a file, and whether a directory is a real one. Stdlib only."""
+"""Small file-system helpers for paths that someone else may have planted: a bounded read of a file, whether a directory is a real one, and the creation of private files and directories. Stdlib only."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 from typing import Optional, Union
@@ -38,3 +39,73 @@ def real_directory(path: Union[str, os.PathLike[str]]) -> bool:
         return stat.S_ISDIR(os.lstat(path).st_mode)
     except (OSError, ValueError):  # absent, not to be looked at, or a NUL in the name
         return False
+
+
+def _make_private(level: str) -> None:
+    """Make `level` a directory at mode 0700 when this call makes it; one that is there already, a link included, is left alone.
+
+    mkdir is atomic, so of any number of racing creators exactly one sees the new directory and only that one chmods it: the umask clears bits from the mode given to mkdir.
+    """
+    try:
+        os.mkdir(level, 0o700)
+    except FileExistsError:
+        return
+    os.chmod(level, 0o700)
+
+
+def ensured(directory: str) -> Optional[str]:
+    """Create `directory` and its parent if needed, mode 0700 whatever the umask, and return it when it is a real directory; None when it cannot be made or is a link.
+
+    Each level this call makes is chmodded to 0700, since the umask clears bits from
+    the mode mkdir is given. Ancestors above the parent belong to the platform: they are made at the
+    umask's mode and left alone.
+    """
+    parent = os.path.dirname(directory)
+    try:
+        os.makedirs(os.path.dirname(parent), exist_ok=True)
+        for level in (parent, directory):
+            _make_private(level)
+    except OSError:
+        return None
+    return directory if real_directory(directory) else None  # makedirs accepts a link to a directory; nothing is made through one
+
+
+def created(path: str, data: bytes = b"") -> Optional[bool]:
+    """Create `path` as a private file (mode 0600 whatever the umask) holding `data`: True if this call made it, False if it was there already (a link included), None if it cannot be made, and then no file is left behind.
+
+    The file is opened with O_EXCL and O_NOFOLLOW, so of any number of racing creators exactly one gets True,
+    and a link planted under the name is never followed.
+    """
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        return False
+    except OSError:
+        return None
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            os.fchmod(handle.fileno(), 0o600)  # the open applies the umask, which may have cleared bits
+            handle.write(data)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(path)  # a half-written file must not stand for the record: the next attempt starts from nothing
+        return None
+    return True
+
+
+def absolute_path(value: object) -> Optional[str]:
+    """`value` as an absolute path string the file system can name, or None: no NUL, and no unpaired surrogate, which has no encoding. A path-like object is read as its string; anything else is None."""
+    path = os.fspath(value) if isinstance(value, (str, os.PathLike)) else None
+    if not isinstance(path, str) or "\0" in path or not os.path.isabs(path):
+        return None
+    try:
+        os.fsencode(path)
+    except ValueError:  # UnicodeEncodeError: a lone surrogate that the file system's encoding cannot carry
+        return None
+    return path
+
+
+def subdirectory(data_dir: object, name: str) -> Optional[str]:
+    """`name` below an absolute data directory, or None for anything else (a relative path would follow the working directory)."""
+    base = absolute_path(data_dir)
+    return None if base is None else os.path.join(base, name)

@@ -30,6 +30,7 @@ SESSION_START = "SessionStart"
 DECLARED = {
     (SESSION_START, None, LAUNCH + "notice", 5, None),
     (SESSION_START, "startup", LAUNCH + "prune", 3, None),
+    (SESSION_START, None, LAUNCH + "adopt", 5, None),
 }
 # The guard handler exists but hooks/hooks.json does not declare it, so no session is affected. These two constants are the entry the
 # registering change will add (the `|| exit 0` keeps a missing script, which exits 2 and would block every edit, from blocking one).
@@ -57,7 +58,7 @@ class DeclaredHooksTest(unittest.TestCase):
     def setUp(self):
         self.document = load_json(HOOKS_JSON)
 
-    def test_the_declared_hooks_are_exactly_the_session_start_pair(self):
+    def test_the_declared_hooks_are_exactly_the_three_session_start_entries(self):
         self.assertEqual(entries(self.document), DECLARED)
 
     def test_the_file_is_not_vacuously_empty(self):
@@ -67,9 +68,11 @@ class DeclaredHooksTest(unittest.TestCase):
         # D13: SessionEnd has a 1.5 s budget shared by all its hooks that a plugin cannot raise, so registering nothing is the decision.
         self.assertEqual(set(self.document["hooks"]), {SESSION_START})
 
-    def test_the_notice_has_no_matcher_so_it_fires_again_on_resume_clear_compact_and_fork(self):
-        (notice_group,) = [group for group in self.document["hooks"][SESSION_START] if "notice" in group["hooks"][0]["command"]]
-        self.assertNotIn("matcher", notice_group)
+    def test_the_notice_and_the_mark_have_no_matcher_so_they_fire_again_on_resume_clear_compact_and_fork(self):
+        for name in ("notice", "adopt"):
+            with self.subTest(hook=name):
+                (group,) = [group for group in self.document["hooks"][SESSION_START] if group["hooks"][0]["command"].endswith(" hook " + name)]
+                self.assertNotIn("matcher", group)
 
     def test_no_hook_is_asynchronous_and_none_has_an_on_failure_setting(self):
         for hook in every_hook(self.document):
@@ -160,7 +163,7 @@ class BoundaryTest(unittest.TestCase):
         tree = ast.parse((SRC / "harness" / "claude_hooks.py").read_text(encoding="utf-8"))
         top_level = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))]
         names = {name for node in top_level for name in jam_imports(ast.unparse(node), HARNESS_PACKAGE)}
-        for module in ("jam.guard", "jam.claims", "jam.repos", "jam.files", "jam.sweep"):
+        for module in ("jam.guard", "jam.claims", "jam.repos", "jam.files", "jam.sweep", "jam.tickets"):
             with self.subTest(module=module):
                 self.assertFalse({n for n in names if n == module or n.startswith(module + ".")}, names)
 
@@ -178,12 +181,20 @@ class BoundaryTest(unittest.TestCase):
 CORE_IMPORTS = {
     "files.py": set(),
     "repos.py": {"jam.files", "jam.files.read_small"},
-    "claims.py": {"jam.files", "jam.files.read_small", "jam.files.real_directory", "jam.session", "jam.session.ID_PATTERN", "jam.session.is_id"},
+    "claims.py": {
+        "jam.files", "jam.files.absolute_path", "jam.files.created", "jam.files.ensured", "jam.files.read_small",
+        "jam.files.real_directory", "jam.files.subdirectory", "jam.session", "jam.session.ID_PATTERN", "jam.session.is_id",
+    },
+    "tickets.py": {
+        "jam.claims", "jam.claims.Claims", "jam.errors", "jam.errors.RegistryError", "jam.files", "jam.files.absolute_path",
+        "jam.files.created", "jam.files.ensured", "jam.files.real_directory", "jam.files.subdirectory", "jam.session",
+        "jam.session.is_id",
+    },
     "sweep.py": {"jam.files", "jam.files.real_directory", "jam.registry", "jam.registry.expired"},
     "guard.py": {"jam.repos", "jam.repos.Repo", "jam.session", "jam.session.is_id"},
 }
 # Modules a core module may only import inside the function that needs them: they cost start-up time on the hot path.
-LAZY_ONLY = ("subprocess", "hashlib", "tempfile", "argparse", "jam.registry")
+LAZY_ONLY = ("subprocess", "hashlib", "secrets", "tempfile", "argparse", "jam.registry")
 CLAUDE_WORDS = ("claude", "pretooluse", "sessionstart", "notebookedit", "multiedit", "mcp__")
 # Tool names that are also ordinary English, so they are matched as capitalised whole words. `Edit` is left out: it is the guard's own noun.
 CLAUDE_TOOLS = ("Write", "Bash", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite", "SendMessage")
