@@ -29,7 +29,7 @@ class ReadmeTest(unittest.TestCase):
     def test_the_design_names_three_session_start_hooks_and_a_fourth_handler_that_is_not_registered(self):
         design = flat(section(README, "What it does") + section(README, "Design"))
         self.assertIn("Three SessionStart hooks run through the same launcher", design)
-        self.assertIn("one records where the session started and, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
+        self.assertIn("one records where the session started and, at a fresh start, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
         self.assertNotIn("one marks the sessions jam starts", design)
         self.assertIn("A fourth handler, the delegation guard, is implemented and tested but not registered", design)
         self.assertNotIn("Two SessionStart hooks", design)
@@ -135,7 +135,7 @@ class DecisionsTest(unittest.TestCase):
             "The mark is a bare file created by moving a ticket",
             "at the first session start in that directory within 300 seconds",
             "it records that the session took the ticket, not that jam started it",
-            "The session id keeps the mark across a resume",
+            "a resume that keeps the id keeps the mark",
             "The mark stays until the sweep removes it, 30 days after the spawn",
             "A session that takes a ticket it did not spawn",
             "is not denied in any repository while its mark exists",

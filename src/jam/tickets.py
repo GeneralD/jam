@@ -7,8 +7,9 @@ real path the session starts in, and `nonce16` is random, so tickets never colli
 The first session start in that directory that has no mark yet claims the freshest
 ticket of it by moving the ticket to the worker mark of the session (any session
 start can claim, not only a spawned worker; the harness adapter decides which starts
-continue a session already marked and so take no ticket). A ticket is claimed only
-within 300 seconds of its writing, and `prune` sweeps any ticket older than thirty days.
+continue or copy a session already started and so take no ticket). A ticket is
+claimed only within 300 seconds of its writing, and `prune` sweeps any ticket older
+than thirty days.
 
 Stdlib only. `hashlib` and `secrets` are imported inside the functions that need
 them, because the start of every session runs this module.

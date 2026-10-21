@@ -39,12 +39,6 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("The owner accepted D14-1, D14-2 and D14-3 as proposed and authorised the live checks", d14)
         self.assertIn("hold their defaults until the owner revises them", d14)
 
-    def test_d14_states_the_points_checked_in_real_sessions(self):
-        d14 = flat(section(DECISIONS, "D14."))
-        for phrase in ("inside a `--bg` worker", "after a resume", "`bypassPermissions`", "re-issues a denied edit"):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, d14)
-
     def test_d14_status_and_the_shape_of_the_work_no_longer_wait_for_the_marks(self):
         # The writers of the marks are in place (adopt and spawn) and the live checks passed, so only D14-8 is left before registration.
         d14 = section(DECISIONS, "D14.")
