@@ -32,6 +32,8 @@ class ReadmeTest(unittest.TestCase):
         self.assertIn("one records where the session started and, at a fresh start, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
         self.assertNotIn("one marks the sessions jam starts", design)
         self.assertIn("A PreToolUse hook, the delegation guard, runs through the same launcher before an edit", design)
+        self.assertIn("D14 lists the exceptions, among them a session with a worker mark.", design)
+        self.assertNotIn("the sessions that jam's `spawn` starts", design)
         self.assertNotIn("not registered", design)
         self.assertNotIn("Planned: the core is built and tested", design)
         self.assertNotIn("Two SessionStart hooks", design)
@@ -59,9 +61,10 @@ class DecisionsTest(unittest.TestCase):
         self.assertNotIn("once the guard is registered", d13)
         self.assertNotIn("Two hooks ship", d13)
 
-    def test_d13_keeps_the_guard_handler_out_of_the_registered_hooks_and_counts_it_as_the_fourth(self):
+    def test_d13_counts_the_guard_as_the_fourth_handler_registered_with_the_wrapper(self):
         d13 = flat(section(DECISIONS, "D13."))
-        self.assertIn("A fourth handler, `guard` (PreToolUse)", d13)
+        self.assertIn("A fourth handler, `guard` (PreToolUse), is in the same table and is registered through the same launcher, with `|| exit 0` appended", d13)
+        self.assertNotIn("is not registered", d13)
         self.assertNotIn("A third handler", d13)
 
     def test_d13_timeouts_and_alarms_name_adopt(self):

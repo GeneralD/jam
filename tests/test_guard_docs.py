@@ -49,6 +49,24 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn('"This is a one-time notice from jam, not a failure."', d14)
         self.assertIn("because the model sees a denial labelled as a hook error (see \"Verified in real sessions\")", d14)
         self.assertNotIn("once it is registered (default: no)", d14)
+        self.assertIn("Answered on 2026-10-22: D14-7 and D14-8, each recorded under its number below. The others hold their defaults", d14)
+
+    def test_d14_names_the_plugin_root_the_exit_zero_wrapper_does_not_cover_and_the_follow_up(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn("Tests pin that entry and that the in-process alarm (2 s) is below its timeout.", d14)
+        self.assertNotIn("together with the pin that", d14)
+        self.assertIn("It does not cover a plugin root that leaves the command unparseable, such as one with an unmatched double quote or backtick or an unterminated `$(`", d14)
+        self.assertNotIn("that contains a double quote or a backtick", d14)
+        self.assertIn("- **Fail open.** Allow (print nothing, exit 0) on:", d14)
+        self.assertNotIn("Fail open, all of it", d14)
+        self.assertIn("so such a root makes the shell itself exit with 2 before `||` runs, and every edit is blocked", d14)
+        self.assertIn("moving to it is open (#15)", d14)
+        self.assertIn("(a plugin root the shell cannot parse does not, see \"Event and entry\")", d14)
+
+    def test_d13_counts_both_declared_events_in_the_session_end_bullet(self):
+        d13 = flat(section(DECISIONS, "D13."))
+        self.assertIn("A test pins the set of declared events, SessionStart and PreToolUse, so adding one is a visible change.", d13)
+        self.assertNotIn("A test pins the set of declared events to SessionStart,", d13)
 
     def test_d14_status_and_the_shape_of_the_work_say_registration_followed_d14_8(self):
         # The writers of the marks are in place (adopt and spawn) and the live checks ran, so only D14-8 was left before registration.
@@ -145,7 +163,7 @@ class StatementsTest(unittest.TestCase):
         sources = {
             "src/jam/harness/notice.py": (["the model itself named a prefix of"], []),
             "src/jam/harness/claude_hooks.py": (
-                ["which has no entry there yet", "is implemented and tested but not registered", "three registered"],
+                ["which has no entry there yet", "is implemented and tested but not registered", "three registered", "the one its entry will declare"],
                 ["Four handlers, all registered", "before the platform's timeout in hooks/hooks.json"],
             ),
             "src/jam/guard.py": (

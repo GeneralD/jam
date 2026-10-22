@@ -221,7 +221,7 @@ def _clock_hour() -> int:
 @dataclass(frozen=True)
 class Hook:
     handler: Handler
-    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json (for `guard`, the one its entry will declare), which a test pins
+    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json, which a test pins
     envelope: Callable[[str], str] = hook_io.hook_output  # what the text of the handler is wrapped in
     stdin_cap: int = hook_io.MAX_STDIN  # bytes of stdin that are read; a longer input is an empty payload
 

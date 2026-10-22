@@ -441,8 +441,8 @@ registered through the same launcher, with `|| exit 0` appended; it is D14.
   the composition root and its wiring stays in the adapter.
   Rejected: the text and the envelope in the core, where a later harness would
   have to work around them.
-- **SessionEnd: no hook.** A test pins the set of declared events to
-  SessionStart, so adding one is a visible change. The hooks reference gives
+- **SessionEnd: no hook.** A test pins the set of declared events, SessionStart
+  and PreToolUse, so adding one is a visible change. The hooks reference gives
   SessionEnd a default timeout of exactly 1.5 seconds, shared by all of its
   hooks, that a plugin cannot raise (see "Plugin platform facts"), and the
   install-only rule forbids asking the owner to. It also fires on `clear` and
@@ -495,15 +495,21 @@ states the intent; this entry is how it works.
   (letters and `|` only, which the platform reads as an exact-name list; never
   `Edit.*`). MultiEdit is in no documentation page that was checked and stays
   because D6 and the issue name it; nothing may depend on it firing. The entry
-  declared in `hooks/hooks.json`, and pinned there by a test, is `python3 -I
-  "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard || exit 0` with `"timeout": 5`,
-  together with the pin that the in-process alarm (2 s) is below that timeout.
+  declared in `hooks/hooks.json` is `python3 -I
+  "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard || exit 0` with `"timeout": 5`.
+  Tests pin that entry and that the in-process alarm (2 s) is below its timeout.
   The `|| exit 0` is the exit-2 wrapper: Python exits with 2 when it cannot open
   the script, which is what a stale plugin root after an update looks like, and
-  2 blocks the tool call. No `onFailure` (it would turn failures into blocks),
-  no `async`. The default command timeout is 600 s, so the explicit 5 is
-  required. The alarm keeps the default SIGALRM disposition, so the kernel ends
-  a hook stuck in a system call; the shell then reports 142 and the wrapper
+  2 blocks the tool call. It does not cover a plugin root that leaves the
+  command unparseable, such as one with an unmatched double quote or backtick or
+  an unterminated `$(`: the platform substitutes the placeholder into the
+  command before the shell parses it, so such a root makes the shell itself exit
+  with 2 before `||` runs, and every edit is blocked. The hooks reference
+  recommends the exec form (`args`) for a command with a path placeholder;
+  moving to it is open (#15). No `onFailure` (it would turn failures into
+  blocks), no `async`. The default command timeout is 600 s, so the explicit 5
+  is required. The alarm keeps the default SIGALRM disposition, so the kernel
+  ends a hook stuck in a system call; the shell then reports 142 and the wrapper
   makes it 0.
 - **Output.** Allow prints nothing and exits 0, so the normal permission flow
   stays in force: the guard never prints `allow`, `ask` or `defer`, and never
@@ -638,15 +644,16 @@ states the intent; this entry is how it works.
   worker (see "Plugin platform facts"); the guard reads only
   `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`, `CLAUDE_CONFIG_DIR` and, for the
   default configuration directory, `HOME`.
-- **Fail open, all of it.** Allow (print nothing, exit 0) on: stdin over 8 MiB,
-  not JSON, not an object or wrong-typed fields; a path with NUL, or relative
-  without an absolute working directory; an invalid session id; a data directory
-  that is unset, relative or not creatable; a state directory that is a link;
-  any I/O error in the `.git` walk; a walk over 64 levels; git missing, slow or
+- **Fail open.** Allow (print nothing, exit 0) on: stdin over 8 MiB, not JSON,
+  not an object or wrong-typed fields; a path with NUL, or relative without an
+  absolute working directory; an invalid session id; a data directory that is
+  unset, relative or not creatable; a state directory that is a link; any I/O
+  error in the `.git` walk; a walk over 64 levels; git missing, slow or
   answering anything but 1; any failed claim; any exception (reported by type
   only); a broken stdout. The alarm, a missing interpreter and a missing script
-  all end in exit 0 through the wrapper. A hook timeout does not: it kills the
-  shell before the wrapper can run, and the platform treats it as a non-blocking
+  all end in exit 0 through the wrapper (a plugin root the shell cannot parse
+  does not, see "Event and entry"). A hook timeout does not: it kills the shell
+  before the wrapper can run, and the platform treats it as a non-blocking
   failure, so the call goes ahead. The guard never waits on a lock, never
   sleeps, never reads stdin without a cap, never runs code a foreign repository
   controls except the one git call above (which finds `git` only through the
@@ -709,7 +716,8 @@ states the intent; this entry is how it works.
   at creation. It is not a depth, a role or a parent link, no spawner id is
   stored, and a peer message cannot change it, so sessions stay flat.
 - **Owner questions.** Answered on 2026-10-20: D14-1, D14-2, D14-3 and item 9
-  accepted as proposed. The others hold their defaults until the owner revises
+  accepted as proposed. Answered on 2026-10-22: D14-7 and D14-8, each recorded
+  under its number below. The others hold their defaults until the owner revises
   them. Each default below is one isolated constant or one clause of
   `jam.guard`, marked with its number, and a test names it. D14-2 is the
   exception: its two clauses (steps 9 and 12) go together, with the throttle's

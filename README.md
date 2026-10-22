@@ -59,9 +59,8 @@ by an alarm (D13). A PreToolUse hook, the delegation guard, runs through the
 same launcher before an edit (`Edit`, `Write`, `MultiEdit` or `NotebookEdit`).
 Once per session and repository, it denies an edit of a file in a repository
 other than the one the session started in, with a reason that points to
-delegation; D14 lists the exceptions, among them the sessions that jam's `spawn`
-starts. For any other edit it prints nothing, so the normal permission flow
-decides.
+delegation; D14 lists the exceptions, among them a session with a worker mark.
+For any other edit it prints nothing, so the normal permission flow decides.
 
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
