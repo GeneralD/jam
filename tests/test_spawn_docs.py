@@ -29,7 +29,7 @@ class ReadmeTest(unittest.TestCase):
     def test_the_design_names_three_session_start_hooks_and_a_fourth_handler_that_is_not_registered(self):
         design = flat(section(README, "What it does") + section(README, "Design"))
         self.assertIn("Three SessionStart hooks run through the same launcher", design)
-        self.assertIn("one records where the session started and, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
+        self.assertIn("one records where the session started and, at a fresh start, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
         self.assertNotIn("one marks the sessions jam starts", design)
         self.assertIn("A fourth handler, the delegation guard, is implemented and tested but not registered", design)
         self.assertNotIn("Two SessionStart hooks", design)
@@ -39,9 +39,7 @@ class ReadmeTest(unittest.TestCase):
         status = flat(section(README, "Status"))
         self.assertIn("plus three SessionStart hooks", status)
         self.assertIn("`hooks/hooks.json` declares only the three SessionStart hooks, so no session is affected", status)
-        self.assertIn("registering it waits only for live checks in real sessions", status)
-        self.assertIn("among them whether a real background worker takes its mark", status)
-        self.assertIn("the step that records the start directory and turns a fresh spawn ticket into a worker mark", status)
+        self.assertIn("the step that records the start directory and, at a fresh start, turns a spawn ticket from the last 300 seconds into a worker mark", status)
         for removed in ("plus two SessionStart hooks", "declares only the two SessionStart hooks", "for the change that marks the sessions jam starts", "the step that marks the sessions jam starts"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, status)
@@ -79,13 +77,8 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("sweeps the guard's state directory `guard-v1` (D14) and the spawn ticket directory `pending-v1` (D14)", d13)
         self.assertIn("start records and worker marks", d13)
 
-    def test_d13_unverified_says_the_mark_has_not_been_seen_in_a_live_worker(self):
-        d13 = flat(section(DECISIONS, "D13."))
-        self.assertIn("the worker's first session start, and the `source` it reports there, are unobserved", d13)
-
-    def test_d14_status_says_registration_waits_only_for_the_live_checks(self):
+    def test_d14_status_no_longer_waits_for_the_marks(self):
         d14 = flat(section(DECISIONS, "D14."))
-        self.assertIn("Registering it waits only for the live checks under \"Unverified\"", d14)
         self.assertNotIn("waits for both the live checks", d14)
         self.assertNotIn("until that change exists", d14)
 
@@ -107,7 +100,7 @@ class DecisionsTest(unittest.TestCase):
     def test_d14_owner_questions_9_and_10_record_the_answered_check_and_the_marks_in_place(self):
         d14 = flat(section(DECISIONS, "D14."))
         self.assertIn("The `--session-id` check was answered on 2026-10-21", d14)
-        self.assertIn("writers of the spawn tickets and the `worker.<id>` marks are now in place (D13, `adopt`), so the change that registers the hook waits only for the live checks above", d14)
+        self.assertIn("The writers of the spawn tickets and the `worker.<id>` marks are in place (D13, `adopt`)", d14)
         self.assertNotIn("waits for both the checks above and the change that writes the spawn tickets", d14)
 
     def test_d14_core_and_adapter_names_the_ticket_module_as_core(self):
@@ -129,31 +122,20 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("a worker whose first session start comes later gets no mark", d13)
         self.assertIn("The delay between the spawn and that first session start must also stay within 300 seconds", d13)
 
-    def test_d14_status_says_a_worker_jam_is_expected_to_carry_its_mark_within_the_window(self):
+    def test_d14_status_says_a_worker_carried_its_mark_within_the_window(self):
         status = flat(section(DECISIONS, "D14.").split("\n- **Event and entry.**")[0])
-        self.assertIn('live checks under "Unverified", and a worker that jam starts is expected to carry its mark from its first session start', status)
-        self.assertIn("provided that start comes within 300 seconds of the spawn (D13)", status)
+        self.assertIn("a worker started after a spawn ticket carried its mark from its first session start", status)
+        self.assertIn("which came well within the 300 seconds of D13", status)
         self.assertNotIn("so a worker jam starts carries its mark", status)
-
-    def test_d14_unverified_names_the_worker_first_session_start_and_the_open_items_do_too(self):
-        d14 = flat(section(DECISIONS, "D14."))
-        unverified = d14.split("**Unverified, and to be checked")[1].split("- **Rejected.**")[0]
-        self.assertIn("first session start", unverified)
-        self.assertIn("worker.<id>", unverified)
-        items = flat(section(DECISIONS, "Open verification items"))
-        self.assertIn("the worker's first session start and the mark it leaves", items)
-        self.assertNotIn("The four unverified points of D14", items)
 
     def test_d14_loop_protection_says_when_the_mark_stops_exempting_and_who_takes_a_ticket(self):
         d14 = flat(section(DECISIONS, "D14."))
         for phrase in (
             "is not denied while the mark exists",
             "The mark is a bare file created by moving a ticket",
-            "at the first session start in that directory within 300 seconds",
+            "at the first fresh start in that directory (D13) within 300 seconds",
             "it records that the session took the ticket, not that jam started it",
-            "Only `clear` and `compact` skip the ticket (D13)",
-            "A resume takes it like a startup does",
-            "The session id keeps the mark across a resume",
+            "a resume that keeps the id keeps the mark",
             "The mark stays until the sweep removes it, 30 days after the spawn",
             "A session that takes a ticket it did not spawn",
             "is not denied in any repository while its mark exists",
@@ -176,6 +158,7 @@ class DecisionsTest(unittest.TestCase):
             "a recognised worker is never denied",
             "So the worker a jam starts carries its mark",
             "a provenance flag",
+            "at the first session start in that directory within 300 seconds",
             "the worker's first SessionStart turns it into a mark",
             "in their own directories",
             "however the directory is named",

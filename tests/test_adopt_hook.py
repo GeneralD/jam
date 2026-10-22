@@ -156,22 +156,24 @@ class WorkerMarkTest(AdoptCase):
         self.adopt()
         self.assertTrue(ticket.exists())
 
-    def test_clear_and_compact_claim_no_ticket_but_write_the_start_record(self):
-        for source in ("clear", "compact"):
+    def test_a_session_that_continues_or_copies_one_claims_no_ticket_but_writes_the_start_record(self):
+        # A live --bg worker's first start reported `startup`, and `claude --bg --resume` started a copy that reported `fork` (D14).
+        for number, source in enumerate(("resume", "clear", "compact", "fork")):
             with self.subTest(source=source):
+                sid = f"dddd4444-0000-4000-8000-00000000000{number}"
                 ticket = self.ticket()
-                self.adopt(source=source)
-                self.assertFalse(self.mark().exists())
+                self.adopt(sid=sid, source=source)
+                self.assertFalse(self.mark(sid).exists())
+                self.assertTrue((self.state / f"start.{sid}").exists())
                 self.assertTrue(ticket.exists())
-                ticket.unlink()
 
-    def test_any_other_source_claims_the_ticket(self):
-        for source in ("startup", "resume", "fork", "something new", None):
+    def test_a_fresh_start_or_an_unknown_source_claims_the_ticket(self):
+        for number, source in enumerate(("startup", "something new", None)):
             with self.subTest(source=source):
+                sid = f"eeee5555-0000-4000-8000-00000000000{number}"
                 ticket = self.ticket()
-                self.adopt(source=source)
-                self.assertTrue(self.mark().exists())
-                self.mark().unlink()
+                self.adopt(sid=sid, source=source)
+                self.assertTrue(self.mark(sid).exists())
                 self.assertFalse(ticket.exists())
 
     def test_a_ticket_that_vanishes_before_the_move_gives_way_to_the_next_one(self):

@@ -50,13 +50,13 @@ the same arguments. The reasoning is in [docs/decisions.md](docs/decisions.md)
 
 Three SessionStart hooks run through the same launcher (`scripts/jam hook ...`):
 one injects a short notice that gives the model the exact command line, with the
-data directory flag; one records where the session started and, when `spawn`
-left a ticket for that directory in the last 300 seconds, turns the ticket into
-the session's worker mark (D14); and the third sweeps stale session notes, guard
-files and spawn tickets at startup. They never block a session: a failure they
-can handle still exits 0, and one that hangs is ended by an alarm (D13). A
-fourth handler, the delegation guard, is implemented and tested but not
-registered, so no session reaches it yet (D14).
+data directory flag; one records where the session started and, at a fresh
+start, when `spawn` left a ticket for that directory in the last 300 seconds,
+turns the ticket into the session's worker mark (D14); and the third sweeps
+stale session notes, guard files and spawn tickets at startup. They never block
+a session: a failure they can handle still exits 0, and one that hangs is ended
+by an alarm (D13). A fourth handler, the delegation guard, is implemented and
+tested but not registered, so no session reaches it yet (D14).
 
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
@@ -75,19 +75,20 @@ scope for now; the adapter seams are there so they can be added when needed.
 Early development. The plugin installs from this repository and carries the MCP
 server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus three
 SessionStart hooks: the notice that tells the model how to run jam, the step
-that records the start directory and turns a fresh spawn ticket into a worker
-mark, and the startup sweep of stale notes, guard files and spawn tickets. All
-of it is tested against fakes in place of Claude Code. A print-mode session with
-`claude -p --plugin-dir .` connected the MCP server, answered `list` through it,
-and ran the notice. The one check left to the owner is an interactive `claude
---plugin-dir .` session, started in a trusted directory and not as a background
-session (`--bg`). The core of the delegation guard exists and is tested, but it
-is not registered: `hooks/hooks.json` declares only the three SessionStart
-hooks, so no session is affected. Its design is accepted (D14); registering it
-waits only for live checks in real sessions, among them whether a real
-background worker takes its mark. The skill does not exist yet (there is no
-`skills/` directory), so the `SendMessage` guidance described above is planned,
-not shipped.
+that records the start directory and, at a fresh start, turns a spawn ticket
+from the last 300 seconds into a worker mark, and the startup sweep of stale
+notes, guard files and spawn tickets. All of it is tested against fakes in place
+of Claude Code. A print-mode session with `claude -p --plugin-dir .` connected
+the MCP server, answered `list` through it, and ran the notice. The one check
+left to the owner is an interactive `claude --plugin-dir .` session, started in
+a trusted directory and not as a background session (`--bg`). The core of the
+delegation guard exists and is tested, but it is not registered:
+`hooks/hooks.json` declares only the three SessionStart hooks, so no session is
+affected. Its design is accepted (D14), and the live checks it waited for ran in
+real background sessions on 2026-10-21, among them a background worker taking
+its mark; registering it waits only for approval of the text the model reads
+(D14-8). The skill does not exist yet (there is no `skills/` directory), so the
+`SendMessage` guidance described above is planned, not shipped.
 
 ## License
 
