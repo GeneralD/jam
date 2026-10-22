@@ -25,8 +25,9 @@ repos instead of switching contexts by hand.
 
 A session started in a repository loads that repository's own `.claude`
 instructions, rules, skills, and hooks. Work delegated there follows the local
-conventions, while an edit made from another repository never sees them. jam
-makes delegation the default path for cross-repo work.
+conventions, while an edit made from another repository follows that session's
+setup, which may not include them. jam makes delegation the default path for
+cross-repo work.
 
 ## Design
 
@@ -74,6 +75,23 @@ scope for now; the adapter seams are there so they can be added when needed.
   MCP server, the CLI and the hooks all start with it. On macOS without the
   developer tools, `python3` is a stub that prompts to install them.
 
+## Install
+
+In a Claude Code session, version 2.1.275 or later:
+
+```text
+/plugin install jam --marketplace GeneralD/jam
+```
+
+On an older version, add the marketplace first, then install from it:
+
+```text
+/plugin marketplace add GeneralD/jam
+/plugin install jam@jam
+```
+
+Nothing else is set up by hand: no PATH change and no settings edit (D5).
+
 ## Status
 
 Early development. The plugin installs from this repository and carries the MCP
@@ -90,8 +108,9 @@ started in a trusted directory and not as a background session (`--bg`). The
 guard's design is accepted (D14), and the live checks it waited for ran in real
 background sessions on 2026-10-21, among them a background worker taking its
 mark; it was registered once the owner approved the text the model reads
-(D14-8). The skill does not exist yet (there is no `skills/` directory), so the
-`SendMessage` guidance described above is planned, not shipped.
+(D14-8). The `delegate` skill (`/jam:delegate`) teaches the model when to
+delegate, how to brief a worker, and how to wait for it and exchange messages
+with it through `SendMessage` (D15).
 
 ## License
 
