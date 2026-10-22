@@ -7,10 +7,9 @@ printed, without the session id, and the guard stays silent. Only a crash, the
 alarm or a vanished reader leave no output, and the alarm ends a hung hook by
 signal, so that exit status is not 0.
 
-Four handlers, three registered, all synchronous, all bounded by an in-process
-alarm that goes off before the platform's timeout: the one in hooks/hooks.json for
-`notice`, `prune` and `adopt`, and for `guard`, which has no entry there yet, the one
-its entry will declare (a test holds the alarm below it):
+Four handlers, all registered, all synchronous, all bounded by an in-process
+alarm that goes off before the platform's timeout in hooks/hooks.json (a test
+holds each alarm below the timeout of its entry):
 
 - `notice` (SessionStart) prints the notice. It does no file access at all, so a
   stuck disk cannot delay the first response and a bug in `prune` cannot cost
@@ -24,11 +23,12 @@ its entry will declare (a test holds the alarm below it):
   the session continues or copies one (`resume`, `clear`, `compact` or `fork`),
   takes the spawn ticket of that directory as the session's worker mark. It
   prints nothing.
-- `guard` (PreToolUse) denies, once per session and repository, an edit of a
-  file in a repository other than the one the session started in (D6, D14). It
-  is implemented and tested but not registered in hooks/hooks.json, so no
-  session reaches it yet. Allowing prints nothing at all: the normal permission
-  flow stays in force, and the hook never prints an allow, an ask or a defer.
+- `guard` (PreToolUse, for the four edit tools) denies, once per session and
+  repository, an edit of a file in a repository other than the one the session
+  started in (D6, D14). Its entry ends in `|| exit 0`, so a script that cannot
+  be opened, which makes Python exit with 2, does not block the edit. Allowing
+  prints nothing at all: the normal permission flow stays in force, and the hook
+  never prints an allow, an ask or a defer.
 
 The registry, the sweep and the guard's modules are imported inside the handlers
 that use them: they are the slow part of a start, and `notice` needs none of them.
@@ -221,7 +221,7 @@ def _clock_hour() -> int:
 @dataclass(frozen=True)
 class Hook:
     handler: Handler
-    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json (for `guard`, the one its entry will declare), which a test pins
+    alarm: int  # seconds; below the timeout of the same hook in hooks/hooks.json, which a test pins
     envelope: Callable[[str], str] = hook_io.hook_output  # what the text of the handler is wrapped in
     stdin_cap: int = hook_io.MAX_STDIN  # bytes of stdin that are read; a longer input is an empty payload
 

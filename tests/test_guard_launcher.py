@@ -1,4 +1,4 @@
-"""Launcher-level tests for `hook guard`: the command the registering change will declare, run through a shell as the platform runs it.
+"""Launcher-level tests for `hook guard`: the command hooks/hooks.json declares, run through a shell as the platform runs it.
 
 No Claude Code session is started. The only `git` on the PATH of these runs is a
 script that logs how it was called and answers with an exit code the test sets,

@@ -22,7 +22,7 @@ from jam.registry import Registry
 from jam.service import Jam
 from test_claude_harness import FakeRunner, ok
 from test_guard_launcher import GuardLauncherTestCase
-from test_hook_wiring import LAUNCH, entries
+from test_hook_wiring import GUARD_COMMAND, LAUNCH, entries
 from test_launcher import SESSION_ID
 from test_operations import lazy
 from test_plugin_structure import HOOKS_JSON, command_problems, load_json
@@ -112,8 +112,8 @@ class HooksJsonTest(unittest.TestCase):
         self.document = load_json(HOOKS_JSON)
         self.groups = self.document["hooks"]["SessionStart"]
 
-    def test_the_session_start_hooks_are_exactly_three_groups_and_no_other_event_is_declared(self):
-        self.assertEqual(set(self.document["hooks"]), {"SessionStart"})
+    def test_the_session_start_hooks_are_exactly_three_groups_and_the_only_other_event_is_the_guards(self):
+        self.assertEqual(set(self.document["hooks"]), {"SessionStart", "PreToolUse"})
         self.assertEqual(len(self.groups), 3)
 
     def test_the_adopt_group_has_no_matcher_and_a_timeout_of_five_seconds(self):
@@ -126,8 +126,8 @@ class HooksJsonTest(unittest.TestCase):
     def test_the_alarm_of_adopt_goes_off_before_its_timeout(self):
         self.assertLess(hooks.HOOKS["adopt"].alarm, 5)
 
-    def test_the_declared_entries_are_the_three_session_start_commands(self):
-        self.assertEqual({entry[2] for entry in entries(self.document)}, {LAUNCH + "notice", LAUNCH + "prune", LAUNCH + "adopt"})
+    def test_the_declared_entries_are_the_three_session_start_commands_and_the_guard(self):
+        self.assertEqual({entry[2] for entry in entries(self.document)}, {LAUNCH + "notice", LAUNCH + "prune", LAUNCH + "adopt", GUARD_COMMAND})
 
 
 if __name__ == "__main__":

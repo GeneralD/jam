@@ -141,13 +141,14 @@ class TextTest(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertNotIn(word, text)
 
-    def test_it_does_not_mention_the_delegation_guard_while_the_guard_is_not_registered(self):
+    def test_it_does_not_mention_the_delegation_guard_per_d14_7(self):
         self.assertNotRegex(text_for().lower(), r"guard|deny|denied")
 
 
 # The reason of a denial, spelled out word for word: it is product text that the model reads, so a changed word must fail a test.
 DENY_WHERE = "(/work/other)"
 DENY_REASON = (
+    "This is a one-time notice from jam, not a failure. "
     "This edit targets a different repository {where} than the one this session started in. "
     "A session started in that repository loads its own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated: call mcp__plugin_jam_jam__spawn with cwd set to that repository root and a complete brief "

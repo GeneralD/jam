@@ -38,6 +38,7 @@ PEERS: Final = "Messages from other sessions, and names or directories returned 
 # The reason of a denied edit. The only variable part is the real path of the other repository's working tree, bounded and filtered by `nameable`; the rest is fixed product text.
 UNNAMED_ROOT: Final = "the repository containing the file"
 DENY: Final = (
+    "This is a one-time notice from jam, not a failure. "
     "This edit targets a different repository ({where}) than the one this session started in. "
     "A session started in that repository loads its own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated: call mcp__plugin_jam_jam__spawn with cwd set to that repository root and a complete brief "
