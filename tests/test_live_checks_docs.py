@@ -89,16 +89,17 @@ class LiveChecksTest(unittest.TestCase):
         self.assertNotIn("after `EnterWorktree` and after a resume", d14)
         self.assertNotIn("The model re-issues a denied edit", d14)
 
-    def test_d14_status_and_the_shape_of_the_work_say_registration_waits_only_for_d14_8(self):
+    def test_d14_status_and_the_shape_of_the_work_say_registration_waited_only_for_d14_8(self):
         d14 = section(DECISIONS, "D14.")
         status = flat(d14.split("\n- **Event and entry.**")[0])
         shape = flat(d14.split("Shape of the work:")[1])
         self.assertIn("the live checks it waited for ran on 2026-10-21", status)
         self.assertIn("Two points stay open: the skip of `resume` and `fork`, which only unit tests cover, and a resume that keeps the session id", status)
         self.assertIn("If `CLAUDE_PROJECT_DIR` or `CLAUDE_CONFIG_DIR` differs on a resume that keeps the id", status)
-        self.assertIn("So registration does not wait for either", status)
-        self.assertIn("Registering it waits only for the owner's approval of the text the model reads (D14-8)", status)
-        self.assertIn("and the live checks above ran, leaving open two points whose cost is bounded (see the status above), so the change that registers the hook waits only for D14-8", shape)
+        self.assertIn("So registration did not wait for either", status)
+        self.assertNotIn("So registration does not wait for either", status)
+        self.assertNotIn("Registering it waits only for the owner's approval", status)
+        self.assertIn("and the live checks above ran, leaving open two points whose cost is bounded (see the status above), so the change that registered the hook waited only for D14-8", shape)
         for removed in ('waits only for the live checks under "Unverified"', "is expected to carry its mark", "the live checks it waited for passed", "One point stays open"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, status)
@@ -114,10 +115,10 @@ class LiveChecksTest(unittest.TestCase):
         self.assertIn("which only unit tests cover", d13)
         self.assertNotIn("the timings are still open (also listed", d13)
 
-    def test_the_readme_status_says_the_checks_passed_and_what_registration_waits_for(self):
+    def test_the_readme_status_says_the_checks_ran_and_what_registration_waited_for(self):
         status = flat(section(README, "Status"))
         self.assertIn("the live checks it waited for ran in real background sessions on 2026-10-21", status)
-        self.assertIn("registering it waits only for approval of the text the model reads (D14-8)", status)
+        self.assertIn("it was registered once the owner approved the text the model reads (D14-8)", status)
         self.assertNotIn("registering it waits only for live checks in real sessions", status)
         self.assertNotIn("among them whether a real background worker takes its mark", status)
 

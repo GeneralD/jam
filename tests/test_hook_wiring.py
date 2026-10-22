@@ -26,18 +26,19 @@ hooks = lazy("jam.harness.claude_hooks")
 LAUNCH = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook '
 HARNESS_PACKAGE = "jam.harness"
 SESSION_START = "SessionStart"
+PRE_TOOL_USE = "PreToolUse"
+# The guard's entry (D14). The `|| exit 0` keeps a missing script, which exits 2 and would block every edit, from blocking one.
+EDIT_TOOLS = "Edit|Write|MultiEdit|NotebookEdit"
+EXIT_ZERO = " || exit 0"
+GUARD_COMMAND = LAUNCH + "guard" + EXIT_ZERO
+GUARD_TIMEOUT = 5
 # Every event, matcher, command, timeout and async setting the plugin declares. A new entry is a deliberate edit here.
 DECLARED = {
     (SESSION_START, None, LAUNCH + "notice", 5, None),
     (SESSION_START, "startup", LAUNCH + "prune", 3, None),
     (SESSION_START, None, LAUNCH + "adopt", 5, None),
+    (PRE_TOOL_USE, EDIT_TOOLS, GUARD_COMMAND, GUARD_TIMEOUT, None),
 }
-# The guard handler exists but hooks/hooks.json does not declare it, so no session is affected. These two constants are the entry the
-# registering change will add (the `|| exit 0` keeps a missing script, which exits 2 and would block every edit, from blocking one).
-PRE_TOOL_USE = "PreToolUse"
-GUARD_COMMAND = LAUNCH + "guard || exit 0"
-GUARD_TIMEOUT = 5
-UNREGISTERED = {"guard"}
 
 
 def entries(document):
@@ -54,19 +55,29 @@ def every_hook(document):
     return [hook for groups in document["hooks"].values() for group in groups for hook in group.get("hooks", [])]
 
 
+def every_group(document):
+    return [group for groups in document["hooks"].values() for group in groups]
+
+
+def hook_name(command):
+    """The handler a declared command runs: what follows the launcher, without the exit-zero wrapper."""
+    rest = command[len(LAUNCH):]
+    return rest[: -len(EXIT_ZERO)] if rest.endswith(EXIT_ZERO) else rest
+
+
 class DeclaredHooksTest(unittest.TestCase):
     def setUp(self):
         self.document = load_json(HOOKS_JSON)
 
-    def test_the_declared_hooks_are_exactly_the_three_session_start_entries(self):
+    def test_the_declared_hooks_are_exactly_the_three_session_start_entries_and_the_guard(self):
         self.assertEqual(entries(self.document), DECLARED)
 
     def test_the_file_is_not_vacuously_empty(self):
         self.assertGreaterEqual(len(every_hook(self.document)), 1)
 
-    def test_session_start_is_the_only_event_and_no_session_end_hook_exists(self):
+    def test_session_start_and_pre_tool_use_are_the_only_events_and_no_session_end_hook_exists(self):
         # D13: SessionEnd has a 1.5 s budget shared by all its hooks that a plugin cannot raise, so registering nothing is the decision.
-        self.assertEqual(set(self.document["hooks"]), {SESSION_START})
+        self.assertEqual(set(self.document["hooks"]), {SESSION_START, PRE_TOOL_USE})
 
     def test_the_notice_and_the_mark_have_no_matcher_so_they_fire_again_on_resume_clear_compact_and_fork(self):
         for name in ("notice", "adopt"):
@@ -80,7 +91,7 @@ class DeclaredHooksTest(unittest.TestCase):
                 self.assertNotIn("async", hook)
                 self.assertNotIn("asyncRewake", hook)
                 self.assertNotIn("onFailure", hook)
-        for group in self.document["hooks"][SESSION_START]:
+        for group in every_group(self.document):
             self.assertNotIn("onFailure", group)
 
     def test_every_hook_is_a_command_with_an_explicit_timeout_of_at_most_ten_seconds(self):
@@ -94,29 +105,33 @@ class DeclaredHooksTest(unittest.TestCase):
         for hook in every_hook(self.document):
             with self.subTest(command=hook["command"]):
                 self.assertTrue(hook["command"].startswith(LAUNCH), hook["command"])
-                self.assertIn(hook["command"][len(LAUNCH):], hooks.HOOKS)
+                self.assertIn(hook_name(hook["command"]), hooks.HOOKS)
 
     def test_each_in_process_alarm_goes_off_before_the_platform_timeout_of_the_same_hook(self):
         for hook in every_hook(self.document):
-            name = hook["command"][len(LAUNCH):]
+            name = hook_name(hook["command"])
             with self.subTest(hook=name):
                 self.assertLess(hooks.HOOKS[name].alarm, hook["timeout"])
 
-    def test_every_table_entry_but_the_unregistered_ones_is_wired_and_every_wired_hook_is_in_the_table(self):
-        wired = {hook["command"][len(LAUNCH):] for hook in every_hook(self.document)}
-        self.assertEqual(wired, set(hooks.HOOKS) - UNREGISTERED)
+    def test_every_table_entry_is_wired_and_every_wired_hook_is_in_the_table(self):
+        wired = {hook_name(hook["command"]) for hook in every_hook(self.document)}
+        self.assertEqual(wired, set(hooks.HOOKS))
 
-    def test_the_guard_is_in_the_table_and_nowhere_in_hooks_json(self):
-        self.assertEqual(UNREGISTERED & set(hooks.HOOKS), UNREGISTERED)
-        self.assertNotIn(PRE_TOOL_USE, self.document["hooks"])
-        for hook in every_hook(self.document):
-            with self.subTest(command=hook["command"]):
-                self.assertNotIn("guard", hook["command"])
-        self.assertNotIn("guard", HOOKS_JSON.read_text(encoding="utf-8").lower())
+    def test_the_guard_is_the_only_pre_tool_use_group_with_the_exact_edit_tools_and_one_hook(self):
+        (group,) = self.document["hooks"][PRE_TOOL_USE]
+        self.assertEqual(group["matcher"], EDIT_TOOLS)
+        self.assertRegex(group["matcher"], r"^[A-Za-z|]+$")  # letters and `|` only: the platform reads it as an exact-name list, not a pattern
+        (hook,) = group["hooks"]
+        self.assertEqual((hook["command"], hook["timeout"]), (GUARD_COMMAND, GUARD_TIMEOUT))
+
+    def test_only_the_guard_carries_the_exit_zero_wrapper(self):
+        # D14 adds the wrapper to the guard's entry because an exit 2 there blocks the tool call; the SessionStart entries do not carry it.
+        wrapped = {hook_name(hook["command"]) for hook in every_hook(self.document) if hook["command"].endswith(EXIT_ZERO)}
+        self.assertEqual(wrapped, {"guard"})
 
 
 class GuardEntryTest(unittest.TestCase):
-    """The entry the registering change will add is pinned here already, so that the handler is built for it."""
+    """The guard's entry, checked piece by piece so that the handler is built for it."""
 
     def test_the_command_is_the_launcher_with_the_guard_name_and_the_exit_zero_wrapper(self):
         self.assertTrue(GUARD_COMMAND.startswith(LAUNCH), GUARD_COMMAND)

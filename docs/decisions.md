@@ -309,11 +309,12 @@ pass).
   (also listed under "Open verification items"): `claude` being on the PATH of an
   MCP server that runs inside a `--bg` worker. A failure reads "cannot run
   'claude': executable not found"; add a binary override only if it happens.
-- **Deferred.** Registering the foreign-repo guard (D6; its core exists, see D14), the skill, self-stop refusal in
-  code (the short id is not reliably known over MCP, so the `stop` description
-  warns instead), a `remove` or `prune` verb, and the MCP extras (server
-  instructions, pagination, structured output, cancellation). The SessionStart
-  wiring and the notice text that were deferred here are D13.
+- **Deferred.** The skill, self-stop refusal in code (the short id is not
+  reliably known over MCP, so the `stop` description warns instead), a `remove`
+  or `prune` verb, and the MCP extras (server instructions, pagination,
+  structured output, cancellation). The SessionStart wiring and the notice text
+  that were deferred here are D13, and the foreign-repo guard (D6), deferred
+  here as well, is D14.
 
 - **Interrupts and a vanished reader.** An interrupt ends the command with exit
   130 (the shell's status for SIGINT) and nothing on stderr, because a traceback
@@ -343,25 +344,24 @@ pass).
 
 ## D13. Hooks failure contract
 
-Decided on 2026-10-20, from several independent designs reconciled into one.
-The platform facts it relies on (hook timeouts, `async`, the SessionEnd budget,
-the cap on injected context) are the ones recorded under "Plugin platform
-facts" by the design pass; this change did not re-read the hooks reference. Three
-hooks ship, all on SessionStart, all through the launcher as `python3 -I
+Decided on 2026-10-20, from several independent designs reconciled into one. The
+platform facts it relies on (hook timeouts, `async`, the SessionEnd budget, the
+cap on injected context) are the ones recorded under "Plugin platform facts" by
+the design pass; this change did not re-read the hooks reference. Three
+SessionStart hooks ship here, all through the launcher as `python3 -I
 "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook <name>`. The launcher dispatches the
 first argument `hook` before it imports the command line, so `notice` never
 loads the parser, the registry or the service, and a test pins that import
 graph. The registry, the sweep, the guard's modules and the spawn tickets are
-imported lazily inside the handlers that use them, because `notice` needs none of
-them. A fourth handler, `guard` (PreToolUse), is in the same table but is not
-registered in `hooks/hooks.json`; it is D14.
+imported lazily inside the handlers that use them, because `notice` needs none
+of them. A fourth handler, `guard` (PreToolUse), is in the same table and is
+registered through the same launcher, with `|| exit 0` appended; it is D14.
 
 - **`notice`** has no matcher, so it fires again on resume, clear, compact and
   fork, which also re-injects the notice after a compaction. It prints the text
-  that tells the model how to run jam: `python3 -I <root>/scripts/jam
-  --data-dir <dir> COMMAND`, the four commands, the MCP tool names, the session's
-  own id, and the delegation rationale of D6 without mentioning the guard, which
-  is not registered.
+  that tells the model how to run jam: `python3 -I <root>/scripts/jam --data-dir
+  <dir> COMMAND`, the four commands, the MCP tool names, the session's own id,
+  and the delegation rationale of D6 without mentioning the guard (D14-7).
 - **`prune`** has the matcher `startup`, because it would otherwise run again on
   every resume, clear and compact. It calls `Registry.prune`, then sweeps the
   guard's state directory `guard-v1` (D14) and the spawn ticket directory
@@ -383,10 +383,9 @@ registered in `hooks/hooks.json`; it is D14.
   mark, by moving it there: a hard link, which never replaces a mark, then the
   removal of the ticket. It prints nothing and always exits 0. Its bounded work:
   one create, one capped listing, at most 8 moves; a lost mark costs at most one
-  extra deny per repository once the guard is registered. A ticket counts only
-  when it was written at most 300 seconds before the start (a ticket dated in
-  the future counts as fresh), so a worker whose first session start comes later
-  gets no mark.
+  extra deny per repository. A ticket counts only when it was written at most
+  300 seconds before the start (a ticket dated in the future counts as fresh),
+  so a worker whose first session start comes later gets no mark.
 - **Synchronous, with explicit bounds, and no `async`.** A command hook's
   default timeout is 600 seconds, so each entry sets its own: 5 seconds for
   `notice` and `adopt`, and 3 for `prune`. Inside the process an alarm (3
@@ -474,12 +473,11 @@ registered in `hooks/hooks.json`; it is D14.
 ## D14. The foreign-repository guard
 
 Status: **Accepted** on 2026-10-20. The owner accepted D14-1, D14-2 and D14-3 as
-proposed and authorised the live checks; the other owner questions at the end
-hold their defaults until the owner revises them. The core of the guard is
-implemented and tested, and it is **not registered**: `hooks/hooks.json`
-declares no PreToolUse entry, so no session behaves differently. It is reachable
-only as `python3 -I scripts/jam hook guard`, and a test pins that nothing in
-`hooks/hooks.json` names it. The writers of the marks are in place (`adopt` and
+proposed and authorised the live checks, and answered D14-7 and D14-8 on
+2026-10-22; the other owner questions at the end hold their defaults until the
+owner revises them. The guard is implemented, tested and **registered**:
+`hooks/hooks.json` declares its PreToolUse entry (see "Event and entry"), and a
+test pins that entry. The writers of the marks are in place (`adopt` and
 `spawn`, see "Loop protection"), and the live checks it waited for ran on
 2026-10-21 (see "Verified in real sessions"): a worker started after a spawn
 ticket carried its mark from its first session start, which came well within the
@@ -489,24 +487,24 @@ session id (see "Open verification items"). The skip can only withhold a ticket,
 which costs a worker at most one extra denial per repository. If
 `CLAUDE_PROJECT_DIR` or `CLAUDE_CONFIG_DIR` differs on a resume that keeps the
 id, the guard takes another start repository or configuration directory for that
-session, with the same bound. So registration does not wait for either.
-Registering it waits only for the owner's approval of the text the model reads
-(D14-8). D6 states the intent; this entry is how it works.
+session, with the same bound. So registration did not wait for either, and it
+was registered once the owner approved the text the model reads (D14-8). D6
+states the intent; this entry is how it works.
 
 - **Event and entry.** PreToolUse, matcher `Edit|Write|MultiEdit|NotebookEdit`
   (letters and `|` only, which the platform reads as an exact-name list; never
   `Edit.*`). MultiEdit is in no documentation page that was checked and stays
   because D6 and the issue name it; nothing may depend on it firing. The entry
-  that a later change will register is
-  `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard || exit 0` with
-  `"timeout": 5`, kept as a test constant until then, together with the pin that
-  the in-process alarm (2 s) is below that timeout. The `|| exit 0` is the
-  exit-2 wrapper: Python exits with 2 when it cannot open the script, which is
-  what a stale plugin root after an update looks like, and 2 blocks the tool
-  call. No `onFailure` (it would turn failures into blocks), no `async`. The
-  default command timeout is 600 s, so the explicit 5 is required. The alarm
-  keeps the default SIGALRM disposition, so the kernel ends a hook stuck in a
-  system call; the shell then reports 142 and the wrapper makes it 0.
+  declared in `hooks/hooks.json`, and pinned there by a test, is `python3 -I
+  "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard || exit 0` with `"timeout": 5`,
+  together with the pin that the in-process alarm (2 s) is below that timeout.
+  The `|| exit 0` is the exit-2 wrapper: Python exits with 2 when it cannot open
+  the script, which is what a stale plugin root after an update looks like, and
+  2 blocks the tool call. No `onFailure` (it would turn failures into blocks),
+  no `async`. The default command timeout is 600 s, so the explicit 5 is
+  required. The alarm keeps the default SIGALRM disposition, so the kernel ends
+  a hook stuck in a system call; the shell then reports 142 and the wrapper
+  makes it 0.
 - **Output.** Allow prints nothing and exits 0, so the normal permission flow
   stays in force: the guard never prints `allow`, `ask` or `defer`, and never
   exits 2. Deny is exactly one ASCII line and exit 0,
@@ -515,11 +513,12 @@ Registering it waits only for the owner's approval of the text the model reads
   `notice.deny_reason`) names the other repository's working-tree root when that
   is at most 200 characters and holds no control, format, line-separator or
   paragraph-separator character (Unicode categories Cc, Cf, Zl and Zp, and lone
-  surrogates), and otherwise says "the repository containing the file". The
-  root is a real path, so it can carry a directory name the model never typed
-  (behind a link, or an alias such as `/tmp`), and the name of a clone is chosen
-  by whoever published it; the length bound and the character filter are what
-  keep that text harmless. The rest is a constant.
+  surrogates), and otherwise says "the repository containing the file". The root
+  is a real path, so it can carry a directory name the model never typed (behind
+  a link, or an alias such as `/tmp`), and the name of a clone is chosen by
+  whoever published it; the length bound and the character filter are what keep
+  that text harmless. The rest is a constant; its first sentence, "This is a
+  one-time notice from jam, not a failure.", is the one D14-8 added.
 - **Decision order,** cheapest first; a step that allows returns before the next
   runs, so the costly ones (the git subprocess and the claims) happen only for
   an edit that would be denied, while the `.git` walks of step 7 are paid by
@@ -748,9 +747,14 @@ Registering it waits only for the owner's approval of the text the model reads
      depend on where the session started.
   7. D14-7, an off switch or a repository allowlist: install-only forbids
      requiring a settings edit, not offering an escape. And whether the notice
-     should mention the guard once it is registered (default: no).
+     should mention the guard (default: no). Answered on 2026-10-22: no off
+     switch and no allowlist for now, and the notice does not mention the guard.
   8. D14-8, approval of the fixed product text the model reads: the deny reason
-     and the notice.
+     and the notice. Answered on 2026-10-22: the notice is approved as written,
+     and the deny reason with one sentence added at its start, "This is a
+     one-time notice from jam, not a failure.", because the model sees a denial
+     labelled as a hook error (see "Verified in real sessions"); the rest of the
+     reason is unchanged.
   9. Authorisation (granted) for the live checks listed under "Verified in real
      sessions", and for the check of `claude --bg --session-id` in "Plugin
      platform facts". The `--session-id` check was answered on 2026-10-21: the
@@ -759,8 +763,9 @@ Registering it waits only for the owner's approval of the text the model reads
   10. Shape of the work: the core merged without registering anything. The
       writers of the spawn tickets and the `worker.<id>` marks are in place
       (D13, `adopt`), and the live checks above ran, leaving open two points
-      whose cost is bounded (see the status above), so the change that registers
-      the hook waits only for D14-8.
+      whose cost is bounded (see the status above), so the change that
+      registered the hook waited only for D14-8, which the owner answered on
+      2026-10-22.
 
 ## Plugin platform facts
 

@@ -1,4 +1,4 @@
-"""Checks that the documents say what the guard really is: proposed, not registered, and pointed to from the decision it refines."""
+"""Checks that the documents say what the guard really is: accepted, registered, and pointed to from the decision it refines."""
 
 from __future__ import annotations
 
@@ -22,11 +22,14 @@ def flat(text):
 
 
 class DecisionsTest(unittest.TestCase):
-    def test_d14_is_accepted_and_still_says_the_guard_is_not_registered(self):
+    def test_d14_is_accepted_and_says_the_guard_is_registered(self):
         d14 = flat(section(DECISIONS, "D14."))
         self.assertIn("Status: **Accepted** on 2026-10-20", d14)
         self.assertNotIn("Proposed", d14)
-        self.assertIn("**not registered**", d14)
+        self.assertIn("The guard is implemented, tested and **registered**: `hooks/hooks.json` declares its PreToolUse entry", d14)
+        for removed in ("**not registered**", "declares no PreToolUse entry", "names it. The writers", "that a later change will register", "kept as a test constant until then"):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, d14)
 
     def test_d14_lists_every_owner_question_with_its_number(self):
         d14 = section(DECISIONS, "D14.")
@@ -36,15 +39,23 @@ class DecisionsTest(unittest.TestCase):
 
     def test_d14_records_which_questions_the_owner_answered_and_which_hold_their_defaults(self):
         d14 = flat(section(DECISIONS, "D14."))
-        self.assertIn("The owner accepted D14-1, D14-2 and D14-3 as proposed and authorised the live checks", d14)
+        self.assertIn("The owner accepted D14-1, D14-2 and D14-3 as proposed and authorised the live checks, and answered D14-7 and D14-8 on 2026-10-22", d14)
         self.assertIn("hold their defaults until the owner revises them", d14)
 
-    def test_d14_status_and_the_shape_of_the_work_no_longer_wait_for_the_marks(self):
-        # The writers of the marks are in place (adopt and spawn) and the live checks ran, so only D14-8 is left before registration.
+    def test_d14_records_the_answers_to_d14_7_and_d14_8(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn("Answered on 2026-10-22: no off switch and no allowlist for now, and the notice does not mention the guard.", d14)
+        self.assertIn("Answered on 2026-10-22: the notice is approved as written, and the deny reason with one sentence added at its start", d14)
+        self.assertIn('"This is a one-time notice from jam, not a failure."', d14)
+        self.assertIn("because the model sees a denial labelled as a hook error (see \"Verified in real sessions\")", d14)
+        self.assertNotIn("once it is registered (default: no)", d14)
+
+    def test_d14_status_and_the_shape_of_the_work_say_registration_followed_d14_8(self):
+        # The writers of the marks are in place (adopt and spawn) and the live checks ran, so only D14-8 was left before registration.
         d14 = section(DECISIONS, "D14.")
         places = {"status": flat(d14.split("\n- **Event and entry.**")[0]), "shape of the work": flat(d14.split("Shape of the work:")[1])}
-        self.assertIn("Registering it waits only for the owner's approval", places["status"])
-        self.assertIn("waits only for D14-8", places["shape of the work"])
+        self.assertIn("it was registered once the owner approved the text the model reads (D14-8)", places["status"])
+        self.assertIn("waited only for D14-8", places["shape of the work"])
         for name, text in places.items():
             with self.subTest(place=name):
                 self.assertNotIn("waits for both the", text)
@@ -133,7 +144,10 @@ class StatementsTest(unittest.TestCase):
     def test_the_source_comments_that_were_corrected_stay_corrected(self):
         sources = {
             "src/jam/harness/notice.py": (["the model itself named a prefix of"], []),
-            "src/jam/harness/claude_hooks.py": (["before the platform's timeout in hooks/hooks.json"], ["which has no entry there yet"]),
+            "src/jam/harness/claude_hooks.py": (
+                ["which has no entry there yet", "is implemented and tested but not registered", "three registered"],
+                ["Four handlers, all registered", "before the platform's timeout in hooks/hooks.json"],
+            ),
             "src/jam/guard.py": (
                 ["the target is not inside the start directory", "(reading `.git` entries, asking git, writing claims) are reached only by"],
                 ["The exception is D14-2", "the target is not inside the configuration directory (D14-3)", "paid by every edit that gets that far"],
@@ -148,13 +162,15 @@ class StatementsTest(unittest.TestCase):
 
 
 class ReadmeTest(unittest.TestCase):
-    def test_the_status_says_the_guard_core_exists_but_is_not_registered(self):
+    def test_the_status_says_the_guard_is_registered(self):
         status = flat(section(README, "Status"))
-        self.assertIn("core of the delegation guard exists and is tested, but it is not registered", status)
+        self.assertIn("It also carries the delegation guard, a PreToolUse hook on the four edit tools.", status)
+        self.assertNotIn("it is not registered", status)
 
-    def test_the_status_says_registration_waits_only_for_the_approval_of_its_text(self):
+    def test_the_status_says_registration_followed_the_approval_of_its_text(self):
         status = flat(section(README, "Status"))
-        self.assertIn("registering it waits only for approval of the text the model reads", status)
+        self.assertIn("it was registered once the owner approved the text the model reads (D14-8)", status)
+        self.assertNotIn("registering it waits only for approval of the text the model reads", status)
         self.assertNotIn("for the change that marks the sessions jam starts", status)
 
     def test_no_document_says_the_guard_does_not_exist(self):

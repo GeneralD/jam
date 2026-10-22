@@ -26,19 +26,21 @@ def flat(text):
 
 
 class ReadmeTest(unittest.TestCase):
-    def test_the_design_names_three_session_start_hooks_and_a_fourth_handler_that_is_not_registered(self):
+    def test_the_design_names_three_session_start_hooks_and_the_guard_as_a_pre_tool_use_hook(self):
         design = flat(section(README, "What it does") + section(README, "Design"))
         self.assertIn("Three SessionStart hooks run through the same launcher", design)
         self.assertIn("one records where the session started and, at a fresh start, when `spawn` left a ticket for that directory in the last 300 seconds, turns the ticket into the session's worker mark (D14)", design)
         self.assertNotIn("one marks the sessions jam starts", design)
-        self.assertIn("A fourth handler, the delegation guard, is implemented and tested but not registered", design)
+        self.assertIn("A PreToolUse hook, the delegation guard, runs through the same launcher before an edit", design)
+        self.assertNotIn("not registered", design)
+        self.assertNotIn("Planned: the core is built and tested", design)
         self.assertNotIn("Two SessionStart hooks", design)
         self.assertNotIn("A third hook, the delegation guard", design)
 
     def test_the_status_counts_three_hooks_and_drops_the_wait_for_the_mark(self):
         status = flat(section(README, "Status"))
         self.assertIn("plus three SessionStart hooks", status)
-        self.assertIn("`hooks/hooks.json` declares only the three SessionStart hooks, so no session is affected", status)
+        self.assertNotIn("declares only the three SessionStart hooks", status)
         self.assertIn("the step that records the start directory and, at a fresh start, turns a spawn ticket from the last 300 seconds into a worker mark", status)
         for removed in ("plus two SessionStart hooks", "declares only the two SessionStart hooks", "for the change that marks the sessions jam starts", "the step that marks the sessions jam starts"):
             with self.subTest(removed=removed):
@@ -48,11 +50,13 @@ class ReadmeTest(unittest.TestCase):
 class DecisionsTest(unittest.TestCase):
     def test_d13_ships_three_hooks_and_adopt_has_the_failure_contract_of_a_session_start_hook(self):
         d13 = flat(section(DECISIONS, "D13."))
-        self.assertIn("Three hooks ship, all on SessionStart", d13)
+        self.assertIn("Three SessionStart hooks ship here, all through the launcher", d13)
+        self.assertNotIn("Three hooks ship, all on SessionStart", d13)
         self.assertIn("**`adopt`**", d13)
         self.assertIn("prints nothing and always exits 0", d13)
         self.assertIn("bounded work: one create, one capped listing, at most 8 moves", d13)
-        self.assertIn("a lost mark costs at most one extra deny per repository once the guard is registered", d13)
+        self.assertIn("a lost mark costs at most one extra deny per repository.", d13)
+        self.assertNotIn("once the guard is registered", d13)
         self.assertNotIn("Two hooks ship", d13)
 
     def test_d13_keeps_the_guard_handler_out_of_the_registered_hooks_and_counts_it_as_the_fourth(self):

@@ -17,9 +17,9 @@ repos instead of switching contexts by hand.
   native `SendMessage`.
 - Treat every session as a **peer**: a spawned session still takes instructions
   from the owner as usual and may message the sessions that started it.
-- **Guard** against editing another repository directly: the first such edit in a
-  session is denied once with a pointer to delegation, and the re-issued edit passes.
-  Planned: the core is built and tested but not registered yet (see Status).
+- **Guard** against editing another repository directly: the first such edit in
+  a session is denied once with a pointer to delegation, and the re-issued edit
+  passes.
 
 ## Why delegate instead of editing directly
 
@@ -55,8 +55,13 @@ start, when `spawn` left a ticket for that directory in the last 300 seconds,
 turns the ticket into the session's worker mark (D14); and the third sweeps
 stale session notes, guard files and spawn tickets at startup. They never block
 a session: a failure they can handle still exits 0, and one that hangs is ended
-by an alarm (D13). A fourth handler, the delegation guard, is implemented and
-tested but not registered, so no session reaches it yet (D14).
+by an alarm (D13). A PreToolUse hook, the delegation guard, runs through the
+same launcher before an edit (`Edit`, `Write`, `MultiEdit` or `NotebookEdit`).
+Once per session and repository, it denies an edit of a file in a repository
+other than the one the session started in, with a reason that points to
+delegation; D14 lists the exceptions, among them the sessions that jam's `spawn`
+starts. For any other edit it prints nothing, so the normal permission flow
+decides.
 
 The first release targets **Claude Code** sessions that are registered with its
 background session stack, so they show up in `claude agents`. It does not
@@ -77,16 +82,15 @@ server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus three
 SessionStart hooks: the notice that tells the model how to run jam, the step
 that records the start directory and, at a fresh start, turns a spawn ticket
 from the last 300 seconds into a worker mark, and the startup sweep of stale
-notes, guard files and spawn tickets. All of it is tested against fakes in place
-of Claude Code. A print-mode session with `claude -p --plugin-dir .` connected
-the MCP server, answered `list` through it, and ran the notice. The one check
-left to the owner is an interactive `claude --plugin-dir .` session, started in
-a trusted directory and not as a background session (`--bg`). The core of the
-delegation guard exists and is tested, but it is not registered:
-`hooks/hooks.json` declares only the three SessionStart hooks, so no session is
-affected. Its design is accepted (D14), and the live checks it waited for ran in
-real background sessions on 2026-10-21, among them a background worker taking
-its mark; registering it waits only for approval of the text the model reads
+notes, guard files and spawn tickets. It also carries the delegation guard, a
+PreToolUse hook on the four edit tools. All of it is tested against fakes in
+place of Claude Code. A print-mode session with `claude -p --plugin-dir .`
+connected the MCP server, answered `list` through it, and ran the notice. The
+one check left to the owner is an interactive `claude --plugin-dir .` session,
+started in a trusted directory and not as a background session (`--bg`). The
+guard's design is accepted (D14), and the live checks it waited for ran in real
+background sessions on 2026-10-21, among them a background worker taking its
+mark; it was registered once the owner approved the text the model reads
 (D14-8). The skill does not exist yet (there is no `skills/` directory), so the
 `SendMessage` guidance described above is planned, not shipped.
 
