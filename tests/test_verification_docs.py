@@ -38,8 +38,9 @@ class PermissionModeTest(unittest.TestCase):
 
     def test_d2_quotes_the_rule_as_the_tool_description_states_it_and_points_at_the_observation(self):
         d2 = flat(section(DECISIONS, "D2."))
-        self.assertIn(f"The `SendMessage` description says that a session in a different permission mode holds a message for its user's approval; between background sessions this was not seen for any mode (see {MODES_FACT}).", d2)
+        self.assertIn(f"The `SendMessage` description says that a session in a different permission mode holds a message for its user's approval; between background sessions this was not seen for any mode tried (see {MODES_FACT}).", d2)
         self.assertNotIn("Peers hold a message for approval when their permission modes differ.", d2)
+        self.assertNotIn("this was not seen for any mode (see", d2)
 
     def test_d12_says_a_worker_starts_in_the_default_mode_and_nothing_calls_for_choosing_one(self):
         d12 = flat(section(DECISIONS, "D12."))

@@ -33,9 +33,9 @@ orchestrating session and a `claude --bg` worker:
 Delivery goes through a per-session Unix socket that the harness manages. The
 `SendMessage` description says that a session in a different permission mode
 holds a message for its user's approval; between background sessions this was
-not seen for any mode (see "Cross-session messages and permission modes" under
-"Plugin platform facts"). The roles above (parent, worker) only describe who
-started whom in the experiment; see D10.
+not seen for any mode tried (see "Cross-session messages and permission modes"
+under "Plugin platform facts"). The roles above (parent, worker) only describe
+who started whom in the experiment; see D10.
 
 **Caveat.** In the experiment the receiving parent was itself a
 `kind: background` session. Not verified: a foreground terminal session (a
