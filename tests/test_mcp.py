@@ -142,7 +142,7 @@ class ToolsListTest(unittest.TestCase):
 
     def test_descriptions_carry_their_key_phrases(self):
         phrases = {
-            "spawn": ["complete brief", "do not spawn again", "workspace not trusted"],
+            "spawn": ["complete brief", "do not spawn again", "workspace not trusted", "from the main conversation only"],
             "stop": ["never your own"],
             "whoami": ["stale"],
         }

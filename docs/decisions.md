@@ -69,12 +69,12 @@ Decided on 2026-10-15 (native-first).
 Core is a session registry plus the verbs `spawn`, `list`, `stop`, and `whoami`
 (D12 shows how the entry points expose them). It is stdlib-only and knows
 nothing about a harness or a terminal. `send` and `result` are not jam verbs in
-v1: the skill teaches the AI to use the native `SendMessage` with the ids jam
-reports. The harness adapter declares what it can do in v1 (`spawn_bg`, `list`,
-`stop`); messaging is the native `SendMessage`, not a jam capability. The
-environment seam would declare terminal-specific capabilities (`inject`,
-`read_screen`, `wake_idle`) only if an adapter were ever added, and the core
-degrades gracefully without them.
+v1: the skill (D15) teaches the AI to use the native `SendMessage`, addressing a
+session by the name `ListAgents` prints. The harness adapter declares what it
+can do in v1 (`spawn_bg`, `list`, `stop`); messaging is the native
+`SendMessage`, not a jam capability. The environment seam would declare
+terminal-specific capabilities (`inject`, `read_screen`, `wake_idle`) only if an
+adapter were ever added, and the core degrades gracefully without them.
 
 v1 ships only the Claude Code harness adapter and no environment adapter. jam
 does not depend on a terminal multiplexer: it works for sessions that are
@@ -109,8 +109,9 @@ edit, so legitimate direct edits are never blocked.
 Why delegate at all: a session started in the other repository loads that
 repository's own `.claude` instructions, rules, skills, and hooks into its
 context, so the work follows the local conventions. An edit made from outside
-never sees them. Orchestrating work across repositories this way is the main
-benefit of jam, and the guard exists to make it the default path.
+follows the setup of the session that makes it, which may not include them.
+Orchestrating work across repositories this way is the main benefit of jam, and
+the guard exists to make it the default path.
 
 Limits: shell writes (`sed -i`, `git -C`, redirects) are not detected in v1.
 
@@ -309,12 +310,12 @@ pass).
   (also listed under "Open verification items"): `claude` being on the PATH of an
   MCP server that runs inside a `--bg` worker. A failure reads "cannot run
   'claude': executable not found"; add a binary override only if it happens.
-- **Deferred.** The skill, self-stop refusal in code (the short id is not
-  reliably known over MCP, so the `stop` description warns instead), a `remove`
-  or `prune` verb, and the MCP extras (server instructions, pagination,
-  structured output, cancellation). The SessionStart wiring and the notice text
-  that were deferred here are D13, and the foreign-repo guard (D6), deferred
-  here as well, is D14.
+- **Deferred.** Self-stop refusal in code (the short id is not reliably known
+  over MCP, so the `stop` description warns instead), a `remove` or `prune`
+  verb, and the MCP extras (server instructions, pagination, structured output,
+  cancellation). The SessionStart wiring and the notice text that were deferred
+  here are D13, the foreign-repo guard (D6), deferred here as well, is D14, and
+  the skill is D15.
 
 - **Interrupts and a vanished reader.** An interrupt ends the command with exit
   130 (the shell's status for SIGINT) and nothing on stderr, because a traceback
@@ -630,18 +631,18 @@ states the intent; this entry is how it works.
   Per-pair memory alone does not bound a chain, since every hop is a fresh
   session id; the hourly limit does, even when recognition fails at every hop.
   What is not bounded is a model that spawns in a loop on its own initiative,
-  and ping-pong between peers: those belong to the skill and to `SendMessage`.
-  The wrong assumptions cost different amounts. A session that takes a ticket it
-  did not spawn (a fresh start in that directory within 300 seconds of the
-  spawn) is not denied in any repository while its mark exists, which is until
-  the sweep: it misses one nudge per repository it edits in, and the permission
-  flow is unchanged, so what is lost is the nudge, not a permission. A worker
-  gets at most one extra denial per repository when another session took its
-  ticket, when its first session start comes more than 300 seconds after the
-  spawn, or when it starts in a directory other than the spawn directory (D13).
-  A missing data directory means the guard allows everything. No environment
-  variable carries any of this, since the spawner's environment does not reach a
-  worker (see "Plugin platform facts"); the guard reads only
+  and ping-pong between peers: those belong to the skill (D15) and to
+  `SendMessage`. The wrong assumptions cost different amounts. A session that
+  takes a ticket it did not spawn (a fresh start in that directory within 300
+  seconds of the spawn) is not denied in any repository while its mark exists,
+  which is until the sweep: it misses one nudge per repository it edits in, and
+  the permission flow is unchanged, so what is lost is the nudge, not a
+  permission. A worker gets at most one extra denial per repository when another
+  session took its ticket, when its first session start comes more than 300
+  seconds after the spawn, or when it starts in a directory other than the spawn
+  directory (D13). A missing data directory means the guard allows everything.
+  No environment variable carries any of this, since the spawner's environment
+  does not reach a worker (see "Plugin platform facts"); the guard reads only
   `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`, `CLAUDE_CONFIG_DIR` and, for the
   default configuration directory, `HOME`.
 - **Fail open.** Allow (print nothing, exit 0) on: stdin over 8 MiB, not JSON,
@@ -741,7 +742,8 @@ states the intent; this entry is how it works.
      land there and the directory can itself be a repository on dotfile setups.
   4. D14-4, subagents: the guard applies inside them. Nothing reads `agent_id`,
      since it also appears for whole `--agent` sessions; the first agent to edit
-     gets the one denial. Alternative: skip events that carry it.
+     gets the one denial, and what a denied subagent does next is in D15.
+     Alternative: skip events that carry it.
   5. D14-5, a session that started outside any repository is never denied
      (step 7), because "the repository the session started in" is undefined.
      Alternative: treat every repository as foreign.
@@ -774,6 +776,59 @@ states the intent; this entry is how it works.
       whose cost is bounded (see the status above), so the change that
       registered the hook waited only for D14-8, which the owner answered on
       2026-10-22.
+
+## D15. The delegation skill
+
+Decided on 2026-10-22. One skill ships, `skills/delegate/SKILL.md`
+(`/jam:delegate`), and the model loads it when its description fits the task. It
+teaches what the tool descriptions and the notice state in a line or not at all:
+when to delegate, how to brief a worker so that it can report back, how to wait
+for it and answer it with the native messaging, and the bounds that D14 leaves
+to the skill (a model that spawns in a loop on its own initiative, and ping-pong
+between peers).
+
+- **What it relies on.** `SendMessage` and `ListAgents`: a session is addressed
+  by the name `ListAgents` prints, the first line of `ListAgents` names the
+  calling session as others address it, a reply copies the `from` attribute of
+  the incoming `<cross-session-message>`, and `notify_when_idle: true` asks for
+  one notice when a session on this machine next goes idle. `notify_when_idle`
+  works only in the main conversation, and a subagent's sends go out under its
+  parent session's address, so the skill spawns and waits only from the main
+  conversation. These come from the tool descriptions of Claude Code 2.1.300 and
+  from one listing seen on 2026-10-22, not from a documentation page, so a later
+  version may change them.
+- **Subagents.** The guard runs in a subagent too, and the one denial per
+  repository is shared with the main conversation (D14-4), while the deny reason
+  (D14-8) names `spawn` without saying where to call it. The `spawn` description
+  therefore tells a subagent to hand the work back to its caller, and the skill
+  adds that it says jam suggested delegating it. The main conversation then
+  decides, and is not denied a second time for that repository. The description
+  reaches the model through the MCP tool and `spawn --help`; on the command line
+  that the notice gives, only the skill carries the rule.
+- **What it leaves out.** It repeats a rule of the tool descriptions only where
+  its guidance builds on it, for example the complete brief, peer messages as
+  input, the session name, replies and what a delivered message means, and which
+  sessions to stop, so a change to one of those descriptions may call for the
+  same change here. It leaves out what they cover alone, such as the `problem`
+  of a spawn result, a timeout and an untrusted workspace. It names no path: jam
+  is run through its MCP tools or through the command line of the notice (D5).
+- **Text.** Like the notice (D14-8), the skill is product text that the model
+  reads. Its `description` falls under the default 1,536-character cap of the
+  skill listing (see "Plugin platform facts"), and a test keeps it under that
+  cap and the body under 200 lines.
+- **Verified.** A print-mode session (`claude -p --plugin-dir .`, Claude Code
+  2.1.300, 2026-10-22) listed the skill as `jam:delegate` among its skills and
+  slash commands. No session has used it yet, so whether the model loads it when
+  a task fits its description is not observed.
+- **Rejected.** One skill per role, spawner and worker: the same session can be
+  both (D10), and each skill adds a listing entry to every turn. The guidance
+  in the notice instead: the notice is injected at every session start and
+  after every compaction, while a skill body loads only when it is used.
+- **Owner questions.** D15-1, approval of the skill text (default: as written).
+  D15-2, whether the deny reason should also say to spawn from the main
+  conversation only (default: no; D14-8 approved that text, and the skill
+  carries the rule on both routes and the `spawn` description only over MCP, so
+  whether the skill loads in that case decides how much the answer matters).
 
 ## Plugin platform facts
 
@@ -808,6 +863,16 @@ checked against the release notes for
   `bin/` is added to the Bash tool's PATH while the plugin is enabled, and
   claude.ai and Cowork do not install a plugin that has one; jam does not rely on
   it (see D5) and keeps its launcher in `scripts/` instead (D12).
+- **Skills.** A plugin skill lives at `skills/<name>/SKILL.md` and loads as
+  `/<plugin>:<name>`, where `<name>` is the frontmatter `name` when it sets one
+  and the directory name otherwise. The skill listing always holds every skill's
+  name. Each skill's `description` and `when_to_use` are capped together at
+  1,536 characters by default (`skillListingMaxDescChars` changes the cap), and
+  when the listing outgrows its budget, 1% of the context window by default, the
+  skills invoked least lose theirs first. The body loads only when the skill is
+  used, and the documentation advises keeping it under 500 lines. A frontmatter
+  field the platform does not know is ignored without an error. Source: the
+  skills page of the Claude Code documentation, read on 2026-10-22.
 - **Path variables.** `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` are exported
   to hook processes and MCP stdio servers, but not to commands the model runs
   through the Bash tool. This is why a SessionStart hook has to inject the
