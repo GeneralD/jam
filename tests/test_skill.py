@@ -24,7 +24,9 @@ SKILL = SKILLS / "delegate" / "SKILL.md"
 LISTING_CAP = 1536
 # The only fields this skill sets. The platform reads more and ignores an unknown one without an error, so a typo would go unnoticed.
 FIELDS = {"name", "description", "when_to_use"}
-MAX_BODY_LINES = 200
+MAX_BODY_LINES = 100
+# The listing carries the description on every turn of every session that has the plugin, so it stays well under the cap.
+MAX_DESCRIPTION = 400
 # Stricter than test_plugin_structure.ABSOLUTE_PATH, which guards the manifests: Markdown can put a path after any punctuation, so this looks for
 # a slash that opens a token wherever it stands and lists what does not count instead. Not a path: a slash inside a word (and/or, 1/2), after a
 # relative dot, a glob star, a placeholder or a closing tag (./x, */x, <dir>/x, </b>), before a space, a second slash (://), and /dev/null.
@@ -84,6 +86,9 @@ class FrontmatterTest(unittest.TestCase):
         self.assertLessEqual(len(listing), LISTING_CAP)
         self.assertTrue(self.fields["description"].startswith("Delegate work in another repository"), self.fields["description"])
 
+    def test_the_description_stays_short_because_every_turn_pays_for_it(self):
+        self.assertLessEqual(len(self.fields["description"]), MAX_DESCRIPTION)
+
     def test_the_description_names_each_situation_it_is_for(self):
         description = self.fields["description"]
         for phrase in ("another repository", "jam denied an edit", "started by another session"):
@@ -98,6 +103,11 @@ class BodyTest(unittest.TestCase):
 
     def test_the_body_stays_short_because_it_loads_into_the_context_when_used(self):
         self.assertLessEqual(len(self.body.splitlines()), MAX_BODY_LINES)
+
+    def test_it_leaves_to_the_tool_descriptions_what_they_say_alone(self):
+        for phrase in ("attaches nothing", "letters, digits", "include_exited", "sees only that line", "its short `id`"):
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, self.text)
 
     def test_every_jam_tool_it_names_is_an_operation_and_it_names_all_four(self):
         named = set(re.findall(r"mcp__plugin_jam_jam__(\w+)", self.body)) | set(re.findall(r"`__(\w+)`", self.body))
@@ -174,6 +184,9 @@ class BodyTest(unittest.TestCase):
     def test_a_subagent_hands_back_even_work_the_guard_suggests_delegating(self):
         self.assertIn("even when jam's notice suggests spawning", self.text)
 
+    def test_a_direct_edit_needs_the_owner_or_a_change_no_convention_can_reach(self):
+        self.assertIn("too small for a brief and no convention of that repository can apply to it", self.text)
+
     def test_it_does_not_claim_an_edit_from_here_misses_every_convention(self):
         self.assertIn("an edit made from here follows this session's setup, which may not include them", self.text)
         self.assertNotIn("never sees them", self.text)
@@ -194,6 +207,9 @@ class BodyTest(unittest.TestCase):
 
     def test_it_never_lets_a_session_stop_itself(self):
         self.assertIn("never your own (`whoami` tells you who you are)", self.text)
+
+    def test_it_stops_what_the_stop_contract_allows_and_no_less(self):
+        self.assertIn("a session you started, or one the owner asked you to stop", self.text)
 
     def test_the_guard_text_it_quotes_is_the_one_the_guard_prints(self):
         notice = lazy("jam.harness.notice")

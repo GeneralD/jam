@@ -153,6 +153,7 @@ DENY_REASON = (
     "A session started in that repository loads its own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated: call mcp__plugin_jam_jam__spawn with cwd set to that repository root and a complete brief "
     "(the jam command line in the session notice does the same). "
+    "Call it from the main conversation; a subagent hands the work back to its caller instead. "
     "If a direct edit is really intended, re-issue the same edit and it will go through. "
     "This is shown once per repository in this session."
 )

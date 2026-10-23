@@ -60,9 +60,10 @@ class DecisionsTest(unittest.TestCase):
             "It repeats a rule of the tool descriptions only where its guidance builds on it",
             "a change to one of those descriptions may call for the same change here",
             "so the skill spawns and waits only from the main conversation",
-            "D15-2",
-            "on the command line that the notice gives, only the skill carries the rule",
-            "the skill carries the rule on both routes and the `spawn` description only over MCP",
+            "Answered on 2026-10-23: D15-1",
+            "D15-2, yes: the deny reason now says to call `spawn` from the main conversation",
+            "the description under 400 characters",
+            "the body under 100 lines",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d15)
@@ -70,12 +71,21 @@ class DecisionsTest(unittest.TestCase):
             "It does not repeat the tool descriptions",
             "what the tool descriptions and the notice leave out",
             "It repeats only the rules of the tool descriptions",
+            "names `spawn` without saying where to call it",
+            "only the skill carries the rule",
+            "the body under 200 lines",
         ):
             with self.subTest(removed=phrase):
                 self.assertNotIn(phrase, d15)
 
     def test_d14_points_the_bounds_it_leaves_open_to_d15(self):
         self.assertIn("those belong to the skill (D15) and to `SendMessage`", flat(section(DECISIONS, "D14.")))
+
+    def test_d14_records_the_sentence_that_d15_2_added_to_the_deny_reason(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn("and the sentence that says to call `spawn` from the main conversation is the one D15-2 added", d14)
+        self.assertIn("the rest of the reason was unchanged until D15-2 added one sentence on 2026-10-23", d14)
+        self.assertNotIn("the rest of the reason is unchanged", d14)
 
     def test_d14_4_says_where_a_denied_subagent_goes_next(self):
         self.assertIn("what a denied subagent does next is in D15", flat(section(DECISIONS, "D14.")))
