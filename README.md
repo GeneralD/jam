@@ -110,7 +110,9 @@ background sessions on 2026-10-21, among them a background worker taking its
 mark; it was registered once the owner approved the text the model reads
 (D14-8). The `delegate` skill (`/jam:delegate`) teaches the model when to
 delegate, how to brief a worker, and how to wait for it and exchange messages
-with it through `SendMessage` (D15).
+with it through `SendMessage` (D15). On 2026-10-24 the acceptance criteria were
+checked end to end on Claude Code 2.1.309 (see "Acceptance check" in
+`docs/decisions.md`).
 
 ## License
 

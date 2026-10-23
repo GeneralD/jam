@@ -30,9 +30,12 @@ orchestrating session and a `claude --bg` worker:
   `<cross-session-message>`;
 - worker to an idle parent: the message wakes the parent.
 
-Delivery goes through a per-session Unix socket that the harness manages. Peers
-hold a message for approval when their permission modes differ. The roles above
-(parent, worker) only describe who started whom in the experiment; see D10.
+Delivery goes through a per-session Unix socket that the harness manages. The
+`SendMessage` description says that a session in a different permission mode
+holds a message for its user's approval; between background sessions this was
+not seen for any mode (see "Cross-session messages and permission modes" under
+"Plugin platform facts"). The roles above (parent, worker) only describe who
+started whom in the experiment; see D10.
 
 **Caveat.** In the experiment the receiving parent was itself a
 `kind: background` session. Not verified: a foreground terminal session (a
@@ -273,20 +276,24 @@ pass).
   never cut from the first 8 characters of the session id: that relation was
   observed (see "Background session commands") but is not documented. The
   documentation says an MCP server keeps the id it was started with, so after
-  `/clear`, or `--continue` and `--resume` without an explicit id, the MCP answer
-  may be stale, while the command run through Bash is always current. Because
-  `CLAUDE_JOB_DIR` is documented only for background sessions and their shell
-  commands, `id` is null in a foreground session and not guaranteed over MCP; the
-  caller then matches `session_id` in `list`. Reading the short id from the
-  harness listing inside `whoami` would add a harness call and is deferred. Only
-  the two named variables are read: another `CLAUDE_CODE_SESSION_*` variable
-  carries a credential.
+  `/clear`, or `--continue` and `--resume` without an explicit id, the MCP
+  answer may be stale, while the command run through Bash is always current.
+  Because `CLAUDE_JOB_DIR` is documented only for background sessions and their
+  shell commands, `id` is null in a foreground session, unless that session was
+  started from the shell of a background session and inherited its job directory
+  (#20), and not guaranteed over MCP; the caller then matches `session_id` in
+  `list`. Reading the short id from the harness listing inside `whoami` would
+  add a harness call and is deferred. Only the two named variables are read:
+  another `CLAUDE_CODE_SESSION_*` variable carries a credential.
 - **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
   but neither entry point offers it, and supplying it is an unknown-argument
-  error (a tool result with `isError`, or CLI exit 2). A mode chosen by the model
-  would bypass the per-tool first-use approval of D8, and which mode a worker
-  should get is still an open item. When it is exposed, use an owner-visible
-  allowlist that never accepts a bypass-class mode.
+  error (a tool result with `isError`, or CLI exit 2). A mode chosen by the
+  model would bypass the per-tool first-use approval of D8. Without one, a
+  worker starts in the owner's `permissions.defaultMode`, and messages between
+  background sessions flowed both ways for every mode tried (see "Cross-session
+  messages and permission modes" under "Plugin platform facts"), so nothing
+  calls for choosing one. If it is ever exposed, use an owner-visible allowlist
+  that never accepts a bypass-class mode.
 - **The launcher is `scripts/jam`, not `bin/`.** The plugin documentation puts
   every `bin/` file on the Bash tool's PATH while the plugin is enabled, which
   would add an unrequested bare `jam` command that fails without `--data-dir` and
@@ -1002,6 +1009,29 @@ checked against the release notes for
   transcript is a JSONL file in the project directory named after its
   `sessionId`; `claude logs` shows only a terminal redraw. Once, a row came back
   without `id`; the adapter skips a row without a usable id.
+- **Cross-session messages and permission modes (observed on 2.1.309,
+  2026-10-24).** The `SendMessage` tool description says that a session running
+  in a different permission mode holds cross-session messages for its user's
+  approval and may let them expire, and that a `[Cross-session delivery notice]`
+  tells the sender when a session on the same machine holds or refuses one. In
+  this check, a background session in `auto` exchanged messages in both
+  directions with `--bg` workers started in `auto`, `manual`, `acceptEdits`,
+  `plan`, `dontAsk` and `bypassPermissions`. The worker started by jam's
+  `spawn`, which passes no mode, ran in `auto`, the `permissions.defaultMode` of
+  that configuration. The worker started with `manual` ran in what its
+  transcript records as `default`. No message was held and no `[Cross-session
+  delivery notice]` arrived. Delivered messages carried `from-mode="prompting"`
+  for five of those modes and `from-mode="bypass"` for `bypassPermissions`, so
+  the harness sorts modes into at least two classes, and a message across them
+  was not held either. A foreground session was not tried, and what makes a
+  session hold a message is not known.
+- **Stop, then remove (last checked on 2.1.309, 2026-10-24).** Once, `claude
+  stop` followed by `claude rm` printed success while the session stayed in
+  `claude agents` as idle, and a second stop and rm removed it. It did not recur
+  in five later runs, nor on 2026-10-24, when seven workers were each stopped
+  and removed in one round and a re-list matched the listing taken before they
+  started. The adapter does not retry: `remove` checks the full listing and
+  reports a session that is still there.
 - **`--session-id` under `--bg` (verified by experiment, 2026-10-21, Claude Code
   2.1.300).** Passing `--session-id <uuid>` to `claude --bg` does not fix the
   session's id: the command prints `warning: --bg manages the session id;
@@ -1042,15 +1072,23 @@ checked against the release notes for
   the plugin's identifier outside `A-Z a-z 0-9 _ -` with `-`, so `<name>-inline`
   is expected for any name.
 - **Install from the public repository (verified by experiment).** With the
-  manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered
-  a marketplace named `jam` and `claude plugin install jam@jam` installed the
+  manifests on `main`, `claude plugin marketplace add GeneralD/jam` registered a
+  marketplace named `jam` and `claude plugin install jam@jam` installed the
   plugin at version 0.1.0 in user scope, enabled. `claude plugin uninstall
-  jam@jam` followed by `claude plugin marketplace remove jam` restored the plugin
-  and marketplace lists to exactly what they were before. Two details: because
-  the plugin source is the repository root (`./`), the installed copy is the
-  whole repository (docs, tests, and assets included, under 1 MB for now), and
-  uninstalling leaves the cached copy on disk. If the payload grows, move it to
-  a subdirectory and point the marketplace entry at it.
+  jam@jam` followed by `claude plugin marketplace remove jam` restored the
+  plugin and marketplace lists to exactly what they were before. Two details:
+  because the plugin source is the repository root (`./`), the installed copy is
+  the whole repository (docs, tests, and assets included, under 1 MB for now),
+  and uninstalling leaves the cached copy on disk. If the payload grows, move it
+  to a subdirectory and point the marketplace entry at it. On 2026-10-24 (Claude
+  Code 2.1.309), the add and install commands were run against an empty
+  configuration directory (`CLAUDE_CONFIG_DIR`) and were the whole setup: a
+  print-mode session there ran jam's three SessionStart hooks with exit 0,
+  received the notice, and listed `plugin:jam:jam` as connected with its four
+  tools. The model call then failed because that directory had no login, which
+  is Claude Code's own setup, not jam's. A recursive comparison with `main`
+  (outside `.git`, `.claude` and `__pycache__`) found only the harness's
+  `.in_use` marker added.
 - **Plugin MCP servers (documented).** A plugin declares them in `.mcp.json` at
   its root as `{"mcpServers": {"<server>": {...}}}`, or inline in `plugin.json`
   under `mcpServers` (a map keyed by server name, a path to another file, or an
@@ -1087,35 +1125,59 @@ checked against the release notes for
   unknown request that has an id with `-32601` at once. Because of the probe, the
   server may start twice per session start, so startup, `initialize`,
   `tools/list`, and unknown methods must do no I/O and create nothing.
-- **Session variables (documented).** `CLAUDE_CODE_SESSION_ID` is set in Bash and
-  PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server
-  subprocesses. For Bash and hooks it matches the hook input's `session_id` and
-  follows `/clear`; an MCP server keeps the id it was started with (the resumed
-  id for `--resume <session-id>`, and possibly the initial startup id for
-  `--continue` or `--resume` without an id). `CLAUDE_JOB_DIR` is set in each
-  background session to that session's jobs directory, and shell commands the
-  session runs inherit it; it is documented for nothing else, so it is absent in
-  a foreground session and not guaranteed to an MCP server.
+- **Session variables (documented).** `CLAUDE_CODE_SESSION_ID` is set in Bash
+  and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP
+  server subprocesses. For Bash and hooks it matches the hook input's
+  `session_id` and follows `/clear`; an MCP server keeps the id it was started
+  with (the resumed id for `--resume <session-id>`, and possibly the initial
+  startup id for `--continue` or `--resume` without an id). `CLAUDE_JOB_DIR` is
+  set in each background session to that session's jobs directory, and shell
+  commands the session runs inherit it; it is documented for nothing else, so it
+  is absent in a foreground session unless that session was started from the
+  shell of a background session, which exports it to everything it starts (#20),
+  and not guaranteed to an MCP server.
+
+## Acceptance check (2026-10-24, Claude Code 2.1.309)
+
+The three acceptance criteria of the design issue were checked once, end to end,
+from a background session in `auto` mode.
+
+- **Installing is the only setup.** See "Install from the public repository"
+  under "Plugin platform facts": the marketplace add and install, run against an
+  empty configuration directory, were enough for the three SessionStart hooks
+  and the MCP connection, and only the model call needed a login.
+- **Spawn, prompt, result.** A print-mode session that loaded the installed copy
+  with `--plugin-dir` called `spawn` once through the MCP server, with a prompt
+  that asked the worker to compute a product and send it to the background
+  session by name. The worker did, and the background session that ran the check
+  received the result as a cross-session message. Through jam's CLI the
+  background session also spawned a worker itself, and a follow-up message
+  reached that worker and was answered.
+- **The guard denies once per session and repository.** In a print-mode session
+  started in one git repository with the same copy loaded, the first `Write` to
+  a second git repository outside the configuration directory was denied with
+  the one-time notice, and the same `Write`, re-issued, created the file.
+- **Found.** In that print-mode session, `whoami` returned its own `session_id`
+  with the short id of the background session whose shell had started it,
+  because the session inherited `CLAUDE_JOB_DIR` (#20).
+
+Every worker was then stopped and removed, and a re-list matched the listing
+from before.
 
 ## Open verification items
 
-- Does a real session loaded with `claude --plugin-dir .`, started in a
-  trusted directory (not `--bg`), receive the notice at SessionStart, and does
-  the `startup`-only prune run once? A print-mode session ran the notice hook,
-  which returned its `additionalContext` (D13); an interactive session, the model
-  acting on the notice, and the prune are still unchecked.
-- Peers hold a message for approval when permission modes differ. Which
-  permission mode should `spawn` give a worker so that messages flow without
-  a prompt? Until this is settled, the entry points do not expose
-  `permission_mode` (D12).
+- Does a real session loaded with `claude --plugin-dir .`, started in a trusted
+  directory (not `--bg`), receive the notice at SessionStart, and does the
+  `startup`-only prune run once? A print-mode session ran the notice hook, which
+  returned its `additionalContext` (D13), and with the plugin installed into an
+  empty configuration directory, a later one ran all three SessionStart hooks,
+  the prune among them, once each with exit 0 (see "Install from the public
+  repository" under "Plugin platform facts"). An interactive session and the
+  model acting on the notice are still unchecked.
 - Is `claude` on the PATH of a jam MCP server that runs inside a `--bg` worker?
   Environment variables do not reach workers, and whether the PATH does is
   unverified. Check it by spawning from a worker, and follow any real spawn with
   `stop`, `rm`, and a re-list.
-- `claude stop` followed by `claude rm` once printed success while the session
-  stayed in `claude agents` as idle; a second stop and rm removed it. It did
-  not reproduce in five later runs, and the adapter does not retry: `remove`
-  checks the full listing and reports a session that is still there.
 - Interactive (foreground) sessions: do they appear in `claude agents --json`,
   and can a worker's message wake one?
 - A resume of a background session that keeps its id: the one tried started a
