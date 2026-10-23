@@ -525,7 +525,9 @@ states the intent; this entry is how it works.
   a link, or an alias such as `/tmp`), and the name of a clone is chosen by
   whoever published it; the length bound and the character filter are what keep
   that text harmless. The rest is a constant; its first sentence, "This is a
-  one-time notice from jam, not a failure.", is the one D14-8 added.
+  one-time notice from jam, not a failure.", is the one D14-8 added, and the
+  sentence that says to call `spawn` from the main conversation is the one D15-2
+  added.
 - **Decision order,** cheapest first; a step that allows returns before the next
   runs, so the costly ones (the git subprocess and the claims) happen only for
   an edit that would be denied, while the `.git` walks of step 7 are paid by
@@ -764,7 +766,7 @@ states the intent; this entry is how it works.
      and the deny reason with one sentence added at its start, "This is a
      one-time notice from jam, not a failure.", because the model sees a denial
      labelled as a hook error (see "Verified in real sessions"); the rest of the
-     reason is unchanged.
+     reason was unchanged until D15-2 added one sentence on 2026-10-23.
   9. Authorisation (granted) for the live checks listed under "Verified in real
      sessions", and for the check of `claude --bg --session-id` in "Plugin
      platform facts". The `--session-id` check was answered on 2026-10-21: the
@@ -798,24 +800,25 @@ between peers).
   from one listing seen on 2026-10-22, not from a documentation page, so a later
   version may change them.
 - **Subagents.** The guard runs in a subagent too, and the one denial per
-  repository is shared with the main conversation (D14-4), while the deny reason
-  (D14-8) names `spawn` without saying where to call it. The `spawn` description
-  therefore tells a subagent to hand the work back to its caller, and the skill
-  adds that it says jam suggested delegating it. The main conversation then
-  decides, and is not denied a second time for that repository. The description
-  reaches the model through the MCP tool and `spawn --help`; on the command line
-  that the notice gives, only the skill carries the rule.
+  repository is shared with the main conversation (D14-4). The deny reason and
+  the `spawn` description therefore say to call `spawn` from the main
+  conversation and to hand the work back from a subagent, and the skill adds
+  that the subagent says jam suggested delegating it. The main conversation then
+  decides, and is not denied a second time for that repository.
 - **What it leaves out.** It repeats a rule of the tool descriptions only where
   its guidance builds on it, for example the complete brief, peer messages as
-  input, the session name, replies and what a delivered message means, and which
-  sessions to stop, so a change to one of those descriptions may call for the
-  same change here. It leaves out what they cover alone, such as the `problem`
-  of a spawn result, a timeout and an untrusted workspace. It names no path: jam
-  is run through its MCP tools or through the command line of the notice (D5).
+  input, the session name, replies, and never stopping its own session, so a
+  change to one of those descriptions may call for the same change here. It
+  leaves out what they cover alone, such as the `problem` of a spawn result, a
+  timeout, an untrusted workspace, the characters of a `name`, `include_exited`,
+  an `@` attachment and the first-line preview of a message. It names no path:
+  jam is run through its MCP tools or through the command line of the notice
+  (D5).
 - **Text.** Like the notice (D14-8), the skill is product text that the model
   reads. Its `description` falls under the default 1,536-character cap of the
-  skill listing (see "Plugin platform facts"), and a test keeps it under that
-  cap and the body under 200 lines.
+  skill listing (see "Plugin platform facts"), and a test keeps the description
+  under 400 characters, since the listing carries it on every turn, and the body
+  under 100 lines.
 - **Verified.** A print-mode session (`claude -p --plugin-dir .`, Claude Code
   2.1.300, 2026-10-22) listed the skill as `jam:delegate` among its skills and
   slash commands. No session has used it yet, so whether the model loads it when
@@ -824,11 +827,10 @@ between peers).
   both (D10), and each skill adds a listing entry to every turn. The guidance
   in the notice instead: the notice is injected at every session start and
   after every compaction, while a skill body loads only when it is used.
-- **Owner questions.** D15-1, approval of the skill text (default: as written).
-  D15-2, whether the deny reason should also say to spawn from the main
-  conversation only (default: no; D14-8 approved that text, and the skill
-  carries the rule on both routes and the `spawn` description only over MCP, so
-  whether the skill loads in that case decides how much the answer matters).
+- **Owner questions.** Answered on 2026-10-23: D15-1, the owner asked for a
+  shorter text without the redundant parts, so the skill now leaves to the tool
+  descriptions what they say alone; D15-2, yes: the deny reason now says to call
+  `spawn` from the main conversation, and a subagent to hand the work back.
 
 ## Plugin platform facts
 
