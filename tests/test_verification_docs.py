@@ -86,7 +86,7 @@ class InstallAndAcceptanceTest(unittest.TestCase):
             "a follow-up message reached that worker and was answered",
             "- **The guard denies once per session and repository.** In a print-mode session started in one git repository with the same copy loaded,",
             "the first `Write` to a second git repository outside the configuration directory was denied with the one-time notice, and the same `Write`, re-issued, created the file",
-            "- **Found.** In that print-mode session, `whoami` returned its own `session_id` with the short id of the background session whose shell had started it, because the session inherited `CLAUDE_JOB_DIR` (#20).",
+            "- **Found.** In that print-mode session, `whoami` returned its own `session_id` with the short id of the background session whose shell had started it, because the session inherited `CLAUDE_JOB_DIR` (#20). Fixed afterwards: `whoami` reports a null `id` in that case (D12).",
             "Every worker was then stopped and removed, and a re-list matched the listing from before.",
         ):
             with self.subTest(phrase=phrase):
@@ -100,7 +100,18 @@ class InstallAndAcceptanceTest(unittest.TestCase):
 class SessionVariablesTest(unittest.TestCase):
     def test_d12_and_the_session_variables_fact_name_the_inherited_job_directory(self):
         d12 = flat(section(DECISIONS, "D12."))
-        self.assertIn("`id` is null in a foreground session, unless that session was started from the shell of a background session and inherited its job directory (#20), and not guaranteed over MCP", d12)
+        for phrase in (
+            "`id` is the last path component of `CLAUDE_JOB_DIR` when that passes the id check and the session id starts with it, else null.",
+            'that relation was observed (see "`--session-id` under `--bg`") but is not documented, so it only confirms a name the job directory supplies.',
+            "A session started from the shell of a background session inherits that session's `CLAUDE_JOB_DIR`, and the check keeps it from reporting the other session's short id as its own (#20).",
+            "If a later version drops the relation, `id` is null everywhere, and the caller falls back to `list` as below.",
+            "`id` is null in a foreground session (the check above covers one that inherited a job directory) and not guaranteed over MCP",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, d12)
+        for removed in ("when that passes the id check, else null", "unless that session was started from the shell of a background session and inherited its job directory", '(see "Background session commands") but is not documented'):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, d12)
         fact = platform_fact("Session variables (documented).**")
         self.assertIn("so it is absent in a foreground session unless that session was started from the shell of a background session, which exports it to everything it starts (#20), and not guaranteed to an MCP server", fact)
 
