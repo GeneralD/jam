@@ -1,8 +1,8 @@
 """Structure checks for the hook wiring: what hooks/hooks.json declares, and which module may import which.
 
 These sit beside test_plugin_structure.py, whose helpers they reuse, because that
-file is at its line budget. The checks there (placeholder, no absolute path,
-script exists) apply to the hooks declared here as well.
+file is at its line budget. The checks there (a reference to the plugin root, no
+absolute path, script exists) apply to the hooks declared here as well.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ PACKAGE_PARENT = SRC.parent
 
 hooks = lazy("jam.harness.claude_hooks")
 
-LAUNCH = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook '
+# The root is the exported variable, unbraced and quoted: the shell expands it whether or not the platform pastes `${...}` placeholders in (D14, #15).
+LAUNCH = 'python3 -I "$CLAUDE_PLUGIN_ROOT/scripts/jam" hook '
 HARNESS_PACKAGE = "jam.harness"
 SESSION_START = "SessionStart"
 PRE_TOOL_USE = "PreToolUse"
@@ -106,6 +107,13 @@ class DeclaredHooksTest(unittest.TestCase):
             with self.subTest(command=hook["command"]):
                 self.assertTrue(hook["command"].startswith(LAUNCH), hook["command"])
                 self.assertIn(hook_name(hook["command"]), hooks.HOOKS)
+
+    def test_no_command_holds_a_placeholder_the_platform_could_paste_and_each_quotes_the_exported_root(self):
+        for hook in every_hook(self.document):
+            with self.subTest(command=hook["command"]):
+                self.assertNotIn("${", hook["command"])
+                self.assertIn('"$CLAUDE_PLUGIN_ROOT/scripts/jam"', hook["command"])
+                self.assertEqual(sorted(hook), ["command", "timeout", "type"])  # the shell form run by sh: `args` has no shell for the exit-zero wrapper, and `shell` or `if` would change what runs it or when
 
     def test_each_in_process_alarm_goes_off_before_the_platform_timeout_of_the_same_hook(self):
         for hook in every_hook(self.document):

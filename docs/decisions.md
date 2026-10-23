@@ -350,13 +350,14 @@ platform facts it relies on (hook timeouts, `async`, the SessionEnd budget, the
 cap on injected context) are the ones recorded under "Plugin platform facts" by
 the design pass; this change did not re-read the hooks reference. Three
 SessionStart hooks ship here, all through the launcher as `python3 -I
-"${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook <name>`. The launcher dispatches the
-first argument `hook` before it imports the command line, so `notice` never
-loads the parser, the registry or the service, and a test pins that import
-graph. The registry, the sweep, the guard's modules and the spawn tickets are
-imported lazily inside the handlers that use them, because `notice` needs none
-of them. A fourth handler, `guard` (PreToolUse), is in the same table and is
-registered through the same launcher, with `|| exit 0` appended; it is D14.
+"$CLAUDE_PLUGIN_ROOT/scripts/jam" hook <name>` (the exported variable, not the
+placeholder; see D14, "Event and entry"). The launcher dispatches the first
+argument `hook` before it imports the command line, so `notice` never loads the
+parser, the registry or the service, and a test pins that import graph. The
+registry, the sweep, the guard's modules and the spawn tickets are imported
+lazily inside the handlers that use them, because `notice` needs none of them. A
+fourth handler, `guard` (PreToolUse), is in the same table and is registered
+through the same launcher, with `|| exit 0` appended; it is D14.
 
 - **`notice`** has no matcher, so it fires again on resume, clear, compact and
   fork, which also re-injects the notice after a compaction. It prints the text
@@ -497,21 +498,32 @@ states the intent; this entry is how it works.
   `Edit.*`). MultiEdit is in no documentation page that was checked and stays
   because D6 and the issue name it; nothing may depend on it firing. The entry
   declared in `hooks/hooks.json` is `python3 -I
-  "${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard || exit 0` with `"timeout": 5`.
+  "$CLAUDE_PLUGIN_ROOT/scripts/jam" hook guard || exit 0` with `"timeout": 5`.
   Tests pin that entry and that the in-process alarm (2 s) is below its timeout.
   The `|| exit 0` is the exit-2 wrapper: Python exits with 2 when it cannot open
   the script, which is what a stale plugin root after an update looks like, and
-  2 blocks the tool call. It does not cover a plugin root that leaves the
-  command unparseable, such as one with an unmatched double quote or backtick or
-  an unterminated `$(`: the platform substitutes the placeholder into the
-  command before the shell parses it, so such a root makes the shell itself exit
-  with 2 before `||` runs, and every edit is blocked. The hooks reference
-  recommends the exec form (`args`) for a command with a path placeholder;
-  moving to it is open (#15). No `onFailure` (it would turn failures into
-  blocks), no `async`. The default command timeout is 600 s, so the explicit 5
-  is required. The alarm keeps the default SIGALRM disposition, so the kernel
-  ends a hook stuck in a system call; the shell then reports 142 and the wrapper
-  makes it 0.
+  2 blocks the tool call. The entry names the root through the exported
+  variable, unbraced and in double quotes, so the shell expands it and never
+  parses the characters of the root, and the quotes keep the expanded root one
+  word, with no field splitting or pathname expansion. A `${CLAUDE_PLUGIN_ROOT}`
+  placeholder would not be as safe: the plugins reference describes it as
+  resolved inline in a hook command, and a root pasted into the command with an
+  unmatched double quote or backtick, or an unterminated `$(`, in its name would
+  make the shell exit with 2 before `||` runs and block every edit (#15), and a
+  balanced `$(...)` in it would run as a command. Version 2.1.309 did not paste
+  it (see "Hook command forms" under "Plugin platform facts"), but the unbraced
+  variable is not a placeholder, so the entry is right either way. It needs only
+  the export that the reference documents; without it the path would be
+  `/scripts/jam`, which Python cannot open, and the wrapper would let every edit
+  through. Tests run the entry from such a root and show that the braced form,
+  pasted in, exits with 2. The exec form (`args`), which the hooks reference
+  recommends for a command with a path placeholder, was weighed in #15 and not
+  taken: it runs no shell, so keeping the wrapper would take `sh -c` with the
+  root as a positional parameter, for no gain over the unbraced variable. No
+  `onFailure` (it would turn failures into blocks), no `async`. The default
+  command timeout is 600 s, so the explicit 5 is required. The alarm keeps the
+  default SIGALRM disposition, so the kernel ends a hook stuck in a system call;
+  the shell then reports 142 and the wrapper makes it 0.
 - **Output.** Allow prints nothing and exits 0, so the normal permission flow
   stays in force: the guard never prints `allow`, `ask` or `defer`, and never
   exits 2. Deny is exactly one ASCII line and exit 0,
@@ -654,8 +666,8 @@ states the intent; this entry is how it works.
   error in the `.git` walk; a walk over 64 levels; git missing, slow or
   answering anything but 1; any failed claim; any exception (reported by type
   only); a broken stdout. The alarm, a missing interpreter and a missing script
-  all end in exit 0 through the wrapper (a plugin root the shell cannot parse
-  does not, see "Event and entry"). A hook timeout does not: it kills the shell
+  all end in exit 0 through the wrapper, whatever characters the plugin root
+  holds (see "Event and entry"). A hook timeout does not: it kills the shell
   before the wrapper can run, and the platform treats it as a non-blocking
   failure, so the call goes ahead. The guard never waits on a lock, never
   sleeps, never reads stdin without a cap, never runs code a foreign repository
@@ -703,6 +715,19 @@ states the intent; this entry is how it works.
   copy started; the skip of `resume` and `fork`, added to the `RESUMED` tuple of
   `src/jam/harness/claude_hooks.py` after the probe, is covered by unit tests
   only.
+- **The entry under an awkward plugin root (verified 2026-10-24, Claude Code
+  2.1.309).** A copy of the plugin in a directory whose name holds a double
+  quote, a backtick and `$(` was loaded with `--plugin-dir` into print-mode
+  Haiku sessions. With the braced form the entries had then, the hooks ran as
+  under any other root. The notice named the launcher under that directory,
+  quoted, and the guard denied the first `Write` to a repository outside the
+  configuration directory once and let the re-issued call through. The unbraced
+  form declared now did the same. In that run the MCP server connected too. A
+  first try wrote into a repository under the job directory, which is inside the
+  configuration directory, so D14-3 let it through without a denial; a probe of
+  the guard needs a target outside it. So the failure #15 describes did not
+  occur on that version: the platform did not paste the root into the command
+  (see "Hook command forms" under "Plugin platform facts").
 - **Rejected.** An environment counter, which does not reach workers. A registry
   note keyed by the short id: it would be written after the spawn returns, which
   is the race of D6, and a hook cannot derive the short id. A marker in the spawn
@@ -903,6 +928,24 @@ checked against the release notes for
   is discarded. Not documented: whether it fires when a background worker is
   stopped with `claude stop`. Stale notes and guard files are therefore swept by age at startup
   (`prune`), never at the end of a session (D13).
+- **Hook command forms (observed on 2.1.309, 2026-10-24).** In the shell form,
+  without `args`, the platform passes the command to `/bin/sh -c` exactly as
+  written, with `${CLAUDE_PLUGIN_ROOT}` and `$CLAUDE_PLUGIN_ROOT` left as text,
+  and the shell expands them from the exported variables: a probe hook printed
+  its own command line with `ps`, and a single-quoted `'${CLAUDE_PLUGIN_ROOT}'`
+  came out unexpanded. In the exec form (`args`, added in 2.1.139),
+  `${CLAUDE_PLUGIN_ROOT}` in an argument is replaced by the path as plain text,
+  and the unbraced `$CLAUDE_PLUGIN_ROOT` is not. The plugins reference describes
+  the shell form otherwise: its table of where each variable resolves lists
+  "Anywhere in `command` and `args`" for hook commands, and it says that on
+  Windows the substituted paths use forward slashes so that a shell does not
+  read backslashes as escapes, which is a value pasted into the command. It also
+  lists `CLAUDE_PLUGIN_ROOT` as exported to hook processes. The release notes
+  fit what was observed: 2.1.246 fixed hook error messages that showed a literal
+  `${CLAUDE_PLUGIN_ROOT}` instead of the path, and 2.1.281 added a validator
+  warning for an unquoted one in a shell-form hook, which breaks on a path with
+  spaces. Only macOS was tried, and older versions were not. jam's hook entries
+  use the unbraced variable, which is right under either reading (D14).
 - **Permissions.** A plugin cannot ship `permissions.allow`; only `agent` and
   `subagentStatusLine` are honored from a plugin's `settings`. The documented
   workaround is a `PermissionRequest` hook that allows the plugin's own MCP

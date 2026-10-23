@@ -51,17 +51,44 @@ class DecisionsTest(unittest.TestCase):
         self.assertNotIn("once it is registered (default: no)", d14)
         self.assertIn("Answered on 2026-10-22: D14-7 and D14-8, each recorded under its number below. The others hold their defaults", d14)
 
-    def test_d14_names_the_plugin_root_the_exit_zero_wrapper_does_not_cover_and_the_follow_up(self):
+    def test_d14_says_the_entry_names_the_exported_root_and_why_neither_the_placeholder_nor_the_exec_form_was_taken(self):
         d14 = flat(section(DECISIONS, "D14."))
+        self.assertIn('The entry declared in `hooks/hooks.json` is `python3 -I "$CLAUDE_PLUGIN_ROOT/scripts/jam" hook guard || exit 0` with `"timeout": 5`.', d14)
         self.assertIn("Tests pin that entry and that the in-process alarm (2 s) is below its timeout.", d14)
         self.assertNotIn("together with the pin that", d14)
-        self.assertIn("It does not cover a plugin root that leaves the command unparseable, such as one with an unmatched double quote or backtick or an unterminated `$(`", d14)
-        self.assertNotIn("that contains a double quote or a backtick", d14)
-        self.assertIn("- **Fail open.** Allow (print nothing, exit 0) on:", d14)
+        for phrase in (
+            "The entry names the root through the exported variable, unbraced and in double quotes, so the shell expands it and never parses the characters of the root",
+            "and the quotes keep the expanded root one word, with no field splitting or pathname expansion",
+            "a root pasted into the command with an unmatched double quote or backtick, or an unterminated `$(`, in its name would make the shell exit with 2 before `||` runs and block every edit (#15), and a balanced `$(...)` in it would run as a command",
+            "the plugins reference describes it as resolved inline in a hook command",
+            "Version 2.1.309 did not paste it",
+            "but the unbraced variable is not a placeholder, so the entry is right either way",
+            "without it the path would be `/scripts/jam`, which Python cannot open, and the wrapper would let every edit through",
+            "Tests run the entry from such a root and show that the braced form, pasted in, exits with 2.",
+            "was weighed in #15 and not taken: it runs no shell, so keeping the wrapper would take `sh -c` with the root as a positional parameter, for no gain over the unbraced variable",
+            'all end in exit 0 through the wrapper, whatever characters the plugin root holds (see "Event and entry")',
+            "- **Fail open.** Allow (print nothing, exit 0) on:",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, d14)
         self.assertNotIn("Fail open, all of it", d14)
-        self.assertIn("so such a root makes the shell itself exit with 2 before `||` runs, and every edit is blocked", d14)
-        self.assertIn("moving to it is open (#15)", d14)
-        self.assertIn("(a plugin root the shell cannot parse does not, see \"Event and entry\")", d14)
+        # #15 took the platform to paste the root into the command; 2.1.309 did not, and the entry no longer holds a placeholder it could paste.
+        for removed in (
+            '"${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook guard',
+            "It does not cover a plugin root that leaves the command unparseable",
+            "the platform substitutes the placeholder into the command before the shell parses it",
+            "and every edit is blocked. The hooks reference",
+            "moving to it is open (#15)",
+            "a plugin root the shell cannot parse",
+            "that contains a double quote or a backtick",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, d14)
+
+    def test_d13_names_the_launcher_through_the_exported_root(self):
+        d13 = flat(section(DECISIONS, "D13."))
+        self.assertIn('all through the launcher as `python3 -I "$CLAUDE_PLUGIN_ROOT/scripts/jam" hook <name>` (the exported variable, not the placeholder; see D14, "Event and entry")', d13)
+        self.assertNotIn('"${CLAUDE_PLUGIN_ROOT}/scripts/jam" hook <name>', d13)
 
     def test_d13_counts_both_declared_events_in_the_session_end_bullet(self):
         d13 = flat(section(DECISIONS, "D13."))

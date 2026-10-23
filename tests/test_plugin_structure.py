@@ -25,6 +25,8 @@ LAUNCHER = ROOT / "scripts" / "jam"
 MAX_LINES = 400
 
 PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
+# The root as a placeholder the platform substitutes (`args`) or as the variable a hook's shell expands (D14).
+ROOT_REFERENCE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}|\$CLAUDE_PLUGIN_ROOT\b")
 # A token that starts with "/", "~", a home variable, a drive letter, or a UNC
 # prefix is an absolute or home-relative path. Tokens begin at the start of the
 # text, after whitespace, a quote, "=", or "(". "/dev/null" is allowed.
@@ -50,8 +52,8 @@ def hook_commands(hooks_doc):
 def command_problems(command):
     """Return what is wrong with one hook command, as a list of messages."""
     problems = []
-    if PLUGIN_ROOT_VAR not in command:
-        problems.append(f"does not use {PLUGIN_ROOT_VAR}: {command}")
+    if not ROOT_REFERENCE.search(command):
+        problems.append(f"does not use {PLUGIN_ROOT_VAR} or $CLAUDE_PLUGIN_ROOT: {command}")
     if ABSOLUTE_PATH.search(command):
         problems.append(f"contains an absolute or home path: {command}")
     return problems
@@ -59,7 +61,7 @@ def command_problems(command):
 
 def referenced_scripts(command):
     """Yield the repo-relative paths a command takes from the plugin root."""
-    for match in re.finditer(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s\"']+)", command):
+    for match in re.finditer(r"\$(?:\{CLAUDE_PLUGIN_ROOT\}|CLAUDE_PLUGIN_ROOT)/([^\s\"']+)", command):
         yield match.group(1)
 
 
@@ -82,6 +84,10 @@ class CommandCheckTest(unittest.TestCase):
     def test_accepts_plugin_root_relative_command(self):
         self.assertEqual(command_problems("${CLAUDE_PLUGIN_ROOT}/hooks/x.sh"), [])
 
+    def test_accepts_the_exported_variable_and_rejects_a_longer_name(self):
+        self.assertEqual(command_problems('"$CLAUDE_PLUGIN_ROOT/hooks/x.sh"'), [])
+        self.assertTrue(command_problems('"$CLAUDE_PLUGIN_ROOTS/hooks/x.sh"'))
+
     def test_flags_missing_plugin_root_variable(self):
         self.assertTrue(command_problems("hooks/x.sh"))
 
@@ -99,8 +105,9 @@ class CommandCheckTest(unittest.TestCase):
                 self.assertEqual(command_problems("${CLAUDE_PLUGIN_ROOT}/x.sh " + tail), [])
 
     def test_extracts_referenced_scripts(self):
-        command = 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jam" --flag'
-        self.assertEqual(list(referenced_scripts(command)), ["scripts/jam"])
+        for command in ('python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jam" --flag', 'python3 "$CLAUDE_PLUGIN_ROOT/scripts/jam" --flag'):
+            with self.subTest(command=command):
+                self.assertEqual(list(referenced_scripts(command)), ["scripts/jam"])
 
     def test_script_check_accepts_a_real_file(self):
         self.assertIsNone(script_problem("tests/test_plugin_structure.py"))

@@ -156,6 +156,21 @@ class GuardWrapperTest(GuardLauncherTestCase):
         bare = self.through_sh(self.call(), command=LAUNCH + "guard", env=gone)
         self.assertEqual((bare.returncode, bare.stdout), (2, b""))
 
+    def test_a_plugin_root_the_shell_would_misparse_is_denied_once_and_only_a_pasted_placeholder_would_block(self):
+        # #15: the shell expands the exported root and never parses its name. A platform that pastes `${...}` in, as the plugins reference describes, finds none
+        # in the entry; the braced form it replaced would then hand the shell the name itself, and a parse error exits 2 before `||` (D14).
+        root = self.awkward_root()
+        env = self.hook_env(CLAUDE_PLUGIN_ROOT=str(root))
+        first = self.through_sh(self.call(), env=env)
+        self.assertEqual((first.returncode, first.stderr), (0, b""))
+        self.assertEqual(json.loads(first.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+        second = self.through_sh(self.call(), env=env)
+        self.assertEqual((second.returncode, second.stdout, second.stderr), (0, b"", b""))
+        self.assertEqual(GUARD_COMMAND.replace("${CLAUDE_PLUGIN_ROOT}", str(root)), GUARD_COMMAND)
+        braced = GUARD_COMMAND.replace("$CLAUDE_PLUGIN_ROOT", "${CLAUDE_PLUGIN_ROOT}")
+        pasted = self.through_sh(self.call(), command=braced.replace("${CLAUDE_PLUGIN_ROOT}", str(root)), env=env)
+        self.assertEqual((pasted.returncode, pasted.stdout), (2, b""))
+
     def test_an_interpreter_that_is_not_there_is_exit_zero_with_the_wrapper(self):
         (self.bin / "python3").unlink()
         proc = self.through_sh(self.call(), env=self.hook_env(PATH=str(self.bin)), shell="/bin/sh")
