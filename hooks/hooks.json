@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/scripts/jam\" hook notice",
+            "command": "python3 -I \"$CLAUDE_PLUGIN_ROOT/scripts/jam\" hook notice",
             "timeout": 5
           }
         ]
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/scripts/jam\" hook prune",
+            "command": "python3 -I \"$CLAUDE_PLUGIN_ROOT/scripts/jam\" hook prune",
             "timeout": 3
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/scripts/jam\" hook adopt",
+            "command": "python3 -I \"$CLAUDE_PLUGIN_ROOT/scripts/jam\" hook adopt",
             "timeout": 5
           }
         ]
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/scripts/jam\" hook guard || exit 0",
+            "command": "python3 -I \"$CLAUDE_PLUGIN_ROOT/scripts/jam\" hook guard || exit 0",
             "timeout": 5
           }
         ]

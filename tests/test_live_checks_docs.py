@@ -89,6 +89,21 @@ class LiveChecksTest(unittest.TestCase):
         self.assertNotIn("after `EnterWorktree` and after a resume", d14)
         self.assertNotIn("The model re-issues a denied edit", d14)
 
+    def test_d14_records_the_entry_under_a_plugin_root_the_shell_would_misparse(self):
+        d14 = flat(section(DECISIONS, "D14."))
+        entry = d14.split("**The entry under an awkward plugin root (verified 2026-10-24, Claude Code 2.1.309).**")[1].split("- **")[0]
+        for phrase in (
+            "whose name holds a double quote, a backtick and `$(`",
+            "The notice named the launcher under that directory, quoted,",
+            "the guard denied the first `Write` to a repository outside the configuration directory once and let the re-issued call through",
+            "With the braced form the entries had then,",
+            "The unbraced form declared now did the same.",
+            "so D14-3 let it through without a denial",
+            "So the failure #15 describes did not occur on that version: the platform did not paste the root into the command",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, entry)
+
     def test_d14_status_and_the_shape_of_the_work_say_registration_waited_only_for_d14_8(self):
         d14 = section(DECISIONS, "D14.")
         status = flat(d14.split("\n- **Event and entry.**")[0])
@@ -150,6 +165,25 @@ class PlatformFactsTest(unittest.TestCase):
         for removed in ("whose state was `stopped`", "`.claude/settings.json` turns it off", "so whatever is inherited does not reach a nested repository", "kept the `cwd`"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, facts)
+
+    def test_the_platform_facts_record_how_each_hook_command_form_meets_the_plugin_root(self):
+        facts = flat(section(DECISIONS, "Plugin platform facts"))
+        for phrase in (
+            "**Hook command forms (observed on 2.1.309, 2026-10-24).**",
+            "the platform passes the command to `/bin/sh -c` exactly as written, with `${CLAUDE_PLUGIN_ROOT}` and `$CLAUDE_PLUGIN_ROOT` left as text",
+            "a probe hook printed its own command line with `ps`, and a single-quoted `'${CLAUDE_PLUGIN_ROOT}'` came out unexpanded",
+            "In the exec form (`args`, added in 2.1.139), `${CLAUDE_PLUGIN_ROOT}` in an argument is replaced by the path as plain text, and the unbraced `$CLAUDE_PLUGIN_ROOT` is not.",
+            "The plugins reference describes the shell form otherwise:",
+            'lists "Anywhere in `command` and `args`" for hook commands',
+            "on Windows the substituted paths use forward slashes so that a shell does not read backslashes as escapes, which is a value pasted into the command",
+            "It also lists `CLAUDE_PLUGIN_ROOT` as exported to hook processes.",
+            "2.1.246 fixed hook error messages that showed a literal `${CLAUDE_PLUGIN_ROOT}`",
+            "2.1.281 added a validator warning for an unquoted one in a shell-form hook",
+            "Only macOS was tried, and older versions were not.",
+            "jam's hook entries use the unbraced variable, which is right under either reading (D14).",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, facts)
 
     def test_the_open_items_drop_the_d14_points_and_keep_a_resume_that_keeps_its_id(self):
         items = flat(section(DECISIONS, "Open verification items"))

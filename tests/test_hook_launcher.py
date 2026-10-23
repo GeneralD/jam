@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -45,10 +46,21 @@ def hook_command(name):
     return command
 
 
+# A plugin root whose name the shell would misparse if it were pasted into a command (#15). The entries name the exported root, which the shell expands without parsing its name (D14).
+AWKWARD_ROOT = 'plug"in `root $(x'
+
+
 class HookLauncherTestCase(LauncherTestCase):
     def setUp(self):
         super().setUp()
         self.data = self.root / "jam data"
+
+    def awkward_root(self):
+        """A copy of the launcher and the package under AWKWARD_ROOT; a link would resolve, and the notice would name this tree instead."""
+        copy = self.root / AWKWARD_ROOT
+        for part in ("scripts", "src"):
+            shutil.copytree(ROOT / part, copy / part, ignore=shutil.ignore_patterns("__pycache__"))
+        return copy
 
     def silent(self, proc):
         self.assertExit(proc, 0)
@@ -212,7 +224,7 @@ class AlarmTest(HookLauncherTestCase):
 class PlatformCommandTest(HookLauncherTestCase):
     """The very strings in hooks/hooks.json, run through a shell the way the platform runs them."""
 
-    def run_through_sh(self, name):
+    def run_through_sh(self, name, root=ROOT):
         wrapper = self.bin / "python3"  # a closed PATH would otherwise decide which python3 these commands meet
         wrapper.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n', encoding="utf-8")
         wrapper.chmod(0o755)
@@ -221,7 +233,7 @@ class PlatformCommandTest(HookLauncherTestCase):
             input=SAMPLE,
             capture_output=True,
             cwd=str(self.root),
-            env=self.env(CLAUDE_PLUGIN_ROOT=str(ROOT), CLAUDE_PLUGIN_DATA=str(self.data)),
+            env=self.env(CLAUDE_PLUGIN_ROOT=str(root), CLAUDE_PLUGIN_DATA=str(self.data)),
             timeout=60,
         )
 
@@ -234,6 +246,17 @@ class PlatformCommandTest(HookLauncherTestCase):
     def test_the_prune_command_exits_zero_and_prints_nothing(self):
         proc = self.run_through_sh("prune")
         self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, b"", b""))
+
+    def test_the_session_start_commands_run_from_a_plugin_root_the_shell_would_misparse(self):
+        root = self.awkward_root()
+        notice_run = self.run_through_sh("notice", root)
+        self.assertEqual((notice_run.returncode, notice_run.stderr), (0, b""))
+        text = json.loads(notice_run.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(shlex.quote(str((root / "scripts" / "jam").resolve())), text)
+        for name in ("prune", "adopt"):
+            with self.subTest(hook=name):
+                proc = self.run_through_sh(name, root)
+                self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, b"", b""))
 
 
 if __name__ == "__main__":
