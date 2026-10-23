@@ -73,5 +73,6 @@ brief gives, adding the ref only when the name alone is ambiguous.
 
 ## Finish
 
-`stop` a session you started once nothing is left for it, never your own
-(`whoami` tells you who you are). Removing a stopped session is up to the owner.
+`stop` a session you started, or one the owner asked you to stop, once nothing
+is left for it, never your own (`whoami` tells you who you are). Removing a
+stopped session is up to the owner.

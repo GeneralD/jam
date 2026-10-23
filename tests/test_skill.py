@@ -208,6 +208,9 @@ class BodyTest(unittest.TestCase):
     def test_it_never_lets_a_session_stop_itself(self):
         self.assertIn("never your own (`whoami` tells you who you are)", self.text)
 
+    def test_it_stops_what_the_stop_contract_allows_and_no_less(self):
+        self.assertIn("a session you started, or one the owner asked you to stop", self.text)
+
     def test_the_guard_text_it_quotes_is_the_one_the_guard_prints(self):
         notice = lazy("jam.harness.notice")
         lead = notice.DENY.split(". ", 1)[0] + "."
