@@ -125,6 +125,17 @@ class IdentityTest(unittest.TestCase):
     def test_there_is_no_short_id_without_a_job_directory(self):
         self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID}), session_module.Identity(SESSION_ID, None))
 
+    def test_a_job_directory_name_of_any_length_counts_only_as_a_prefix_of_the_session_id(self):
+        # The name is checked, never cut: no length is assumed for it.
+        for job_dir, expected in (("/jobs/aaaa", "aaaa"), ("/jobs/aaaa1111-0000", "aaaa1111-0000"), ("/jobs/aaaa1111-zzzz", None)):
+            with self.subTest(job_dir=job_dir):
+                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, expected)
+
+    def test_after_a_clear_the_new_session_id_gives_no_short_id(self):
+        # /clear gives a background session a new session id while its job directory keeps the old name (D12).
+        cleared = "cccc3333-0000-4000-8000-000000000002"
+        self.assertEqual(claude_env.identity({SESSION_VAR: cleared, JOB_VAR: "/jobs/aaaa1111"}), session_module.Identity(cleared, None))
+
     def test_trailing_slashes_on_the_job_directory_are_tolerated(self):
         # The name is the last path component, not whatever follows the last slash.
         for job_dir in ("/jobs/aaaa1111/", "/jobs/aaaa1111//"):

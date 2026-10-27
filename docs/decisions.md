@@ -276,20 +276,28 @@ pass).
   it, else null. The short id is never cut from the first 8 characters of the
   session id: that relation was observed (see "`--session-id` under `--bg`") but
   is not documented, so it only confirms a name the job directory supplies. A
-  session started from the shell of a background session inherits that session's
-  `CLAUDE_JOB_DIR`, and the check keeps it from reporting the other session's
-  short id as its own (#20). If a later version drops the relation, `id` is null
-  everywhere, and the caller falls back to `list` as below. The documentation
-  says an MCP server keeps the id it was started with, so after `/clear`, or
-  `--continue` and `--resume` without an explicit id, the MCP answer may be
-  stale, while the command run through Bash is always current. Because
-  `CLAUDE_JOB_DIR` is documented only for background sessions and their shell
-  commands, `id` is null in a foreground session (the check above covers one
-  that inherited a job directory) and not guaranteed over MCP; the caller then
-  matches `session_id` in `list`. Reading the short id from the harness listing
-  inside `whoami` would add a harness call and is deferred. Only the two named
-  variables are read: another `CLAUDE_CODE_SESSION_*` variable carries a
-  credential.
+  foreground session started from the shell of a background session inherits
+  that session's `CLAUDE_JOB_DIR`, and the check keeps it from reporting the
+  other session's short id as its own (#20). The check has a cost. `/clear`
+  gives a background session a new session id (see "Session variables"), and its
+  job directory is expected to keep the old name, so from then on the command
+  run through Bash reports `id` as null where it used to report the right one.
+  Whether the `list` row's `sessionId` follows `/clear` is unverified, so the
+  fallback below may find no row; the `whoami` description then tells the model
+  that its short id is unknown. A wrong id is worse than none: the `stop`
+  description relies on it to keep a session from stopping itself, and a peer
+  would use it as an address. If a later version drops the relation, `id` is
+  null everywhere, and the caller falls back to `list` as below. The
+  documentation says an MCP server keeps the id it was started with, so after
+  `/clear`, or `--continue` and `--resume` without an explicit id, the MCP
+  answer may be stale, while the `session_id` from the command run through Bash
+  is always current. Because `CLAUDE_JOB_DIR` is documented only for background
+  sessions and their shell commands, `id` is null in a foreground session (the
+  check above covers one that inherited a job directory) and not guaranteed over
+  MCP; the caller then matches `session_id` in `list`. Reading the short id from
+  the harness listing inside `whoami` would add a harness call and is deferred.
+  Only the two named variables are read: another `CLAUDE_CODE_SESSION_*`
+  variable carries a credential.
 - **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
   but neither entry point offers it, and supplying it is an unknown-argument
   error (a tool result with `isError`, or CLI exit 2). A mode chosen by the
