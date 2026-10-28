@@ -171,6 +171,16 @@ class BodyTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.text)
 
+    def test_the_idle_notice_is_a_call_the_tool_accepts(self):
+        for phrase in (
+            "`notify_when_idle: true` and a one-line message such as \"No reply needed.\"",
+            "the session receives it",
+            "an empty `message` is refused",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.text)
+        self.assertNotIn("and no message", self.text)
+
     def test_it_says_where_a_session_learns_its_own_address(self):
         self.assertIn("The first line of `ListAgents` names this session as other sessions address it", self.text)
 

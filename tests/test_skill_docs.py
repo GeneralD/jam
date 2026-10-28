@@ -64,6 +64,8 @@ class DecisionsTest(unittest.TestCase):
             "D15-2, yes: the deny reason now says to call `spawn` from the main conversation",
             "the description under 400 characters",
             "the body under 100 lines",
+            "A call with `notify_when_idle: true` and an empty `message` was refused as an invalid parameter on 2.1.309 (2026-10-28)",
+            "while the same call with a one-line message subscribed, so the skill asks for one line and says that the session receives it",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d15)

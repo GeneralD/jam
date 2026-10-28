@@ -888,7 +888,10 @@ between peers).
   parent session's address, so the skill spawns and waits only from the main
   conversation. These come from the tool descriptions of Claude Code 2.1.300 and
   from one listing seen on 2026-10-22, not from a documentation page, so a later
-  version may change them.
+  version may change them. A call with `notify_when_idle: true` and an empty
+  `message` was refused as an invalid parameter on 2.1.309 (2026-10-28), while
+  the same call with a one-line message subscribed, so the skill asks for one
+  line and says that the session receives it.
 - **Subagents.** The guard runs in a subagent too, and the one denial per
   repository is shared with the main conversation (D14-4). The deny reason and
   the `spawn` description therefore say to call `spawn` from the main
