@@ -71,7 +71,6 @@ class LiveChecksTest(unittest.TestCase):
             "PreToolUse fires inside a `--bg` worker",
             "`CLAUDE_PROJECT_DIR` is the spawn directory",
             "both stay the same after `EnterWorktree`",
-            "a resume that keeps the id was not seen",
             "A JSON denial holds under `bypassPermissions`",
             "a Haiku worker whose prompt asked it to decide what to do after a refusal re-issued the denied edit",
             "Whether other models and prompts do the same is not known",
@@ -109,13 +108,11 @@ class LiveChecksTest(unittest.TestCase):
         status = flat(d14.split("\n- **Event and entry.**")[0])
         shape = flat(d14.split("Shape of the work:")[1])
         self.assertIn("the live checks it waited for ran on 2026-10-21", status)
-        self.assertIn("Two points stay open: the skip of `resume` and `fork`, which only unit tests cover, and a resume that keeps the session id", status)
-        self.assertIn("If `CLAUDE_PROJECT_DIR` or `CLAUDE_CONFIG_DIR` differs on a resume that keeps the id", status)
-        self.assertIn("So registration did not wait for either", status)
         self.assertNotIn("So registration does not wait for either", status)
         self.assertNotIn("Registering it waits only for the owner's approval", status)
-        self.assertIn("and the live checks above ran, leaving open two points whose cost is bounded (see the status above), so the change that registered the hook waited only for D14-8", shape)
-        for removed in ('waits only for the live checks under "Unverified"', "is expected to carry its mark", "the live checks it waited for passed", "One point stays open"):
+        self.assertIn("and the live checks above ran, leaving open one point whose cost is bounded (see the status above), so the change that registered the hook waited only for D14-8", shape)
+        self.assertNotIn("leaving open two points", shape)
+        for removed in ('waits only for the live checks under "Unverified"', "is expected to carry its mark", "the live checks it waited for passed"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, status)
         self.assertNotIn("Until a live worker has shown its mark", shape)
@@ -148,16 +145,13 @@ class PlatformFactsTest(unittest.TestCase):
             '`"worktree": {"bgIsolation": "none"}`',
             "which jam's guard counts as the start repository",
             "`claude rm` refused to remove the session",
-            "**Resuming a background session (observed on 2.1.300).**",
             "so this started a copy as <new id>",
             "reported `source: fork` with a new session id",
             "`<config>/plugins/data/jam-probe-inline`, where `<config>` is the configuration directory",
             "so `<name>-inline` is expected for any name",
-            "Once, a row came back without `id`",
             "In the one case tried (2026-10-21), a git repository created inside a trusted project was refused",
             "whether trust is inherited at all is still unverified",
             "run right after `claude stop <id>` had printed `stopped <id>`",
-            "it was started from the same directory, so this does not tell whether they are inherited",
             "as the way to turn it off; that setting was not tried",
         ):
             with self.subTest(phrase=phrase):
@@ -185,12 +179,10 @@ class PlatformFactsTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, facts)
 
-    def test_the_open_items_drop_the_d14_points_and_keep_a_resume_that_keeps_its_id(self):
+    def test_the_open_items_do_not_bring_back_the_d14_points(self):
         items = flat(section(DECISIONS, "Open verification items"))
         self.assertNotIn("The unverified points of D14", items)
         self.assertNotIn("the worker's first session start and the mark it leaves", items)
-        self.assertIn("A resume of a background session that keeps its id", items)
-        self.assertIn("Do `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` keep their values there?", items)
 
 
 if __name__ == "__main__":

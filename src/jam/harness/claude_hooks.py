@@ -60,7 +60,9 @@ SWEEP_LIMIT: Final = 20 * 24 * 30 * 2
 # The budget, counted from the start of the hook, leaves the rest of the alarm for the sweeps and for exiting.
 PRUNE_BUDGET: Final = 1.0
 # The sources of a session that continues or copies one already started; they take no spawn ticket. A live --bg worker's
-# first start reported `startup`, and `claude --bg --resume` started a copy that reported `fork` (D14); an unknown source takes one.
+# first start reported `startup`, and `claude --bg --resume` started a copy that reported `fork` (D14). A resume with no
+# other flag, made 20 seconds or more after a stop, kept the id and reported `resume`, and `/clear` reported `clear`
+# (2026-10-28, D14); an unknown source takes one.
 RESUMED: Final = ("resume", "clear", "compact", "fork")
 
 # Evaluated at import time, so this alias stays on `Optional` for Python 3.9.

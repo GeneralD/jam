@@ -64,7 +64,9 @@ delegation; D14 lists the exceptions, among them a session with a worker mark.
 For any other edit it prints nothing, so the normal permission flow decides.
 
 The first release targets **Claude Code** sessions that are registered with its
-background session stack, so they show up in `claude agents`. It does not
+background session stack, so they show up in `claude agents` with an `id`. A
+foreground session shows up there without one, so jam does not list or stop it,
+although a worker's message woke one in the one check made (D2). It does not
 depend on a terminal multiplexer. Other harnesses and terminals are out of
 scope for now; the adapter seams are there so they can be added when needed.
 
@@ -102,17 +104,18 @@ from the last 300 seconds into a worker mark, and the startup sweep of stale
 notes, guard files and spawn tickets. It also carries the delegation guard, a
 PreToolUse hook on the four edit tools. All of it is tested against fakes in
 place of Claude Code. A print-mode session with `claude -p --plugin-dir .`
-connected the MCP server, answered `list` through it, and ran the notice. The
-one check left to the owner is an interactive `claude --plugin-dir .` session,
-started in a trusted directory and not as a background session (`--bg`). The
-guard's design is accepted (D14), and the live checks it waited for ran in real
-background sessions on 2026-10-21, among them a background worker taking its
-mark; it was registered once the owner approved the text the model reads
-(D14-8). The `delegate` skill (`/jam:delegate`) teaches the model when to
-delegate, how to brief a worker, and how to wait for it and exchange messages
-with it through `SendMessage` (D15). On 2026-10-24 the acceptance criteria were
-checked end to end on Claude Code 2.1.309 (see "Acceptance check" in
-`docs/decisions.md`).
+connected the MCP server, answered `list` through it, and ran the notice. On
+2026-10-28 an interactive `claude --plugin-dir .` session, started in a trusted
+directory and not as a background session (`--bg`), ran the three hooks, and a
+model told to rely on the notice alone, and asked to run `whoami`, ran it in the
+form the notice gives (D13). The guard's design is accepted (D14), and the live
+checks it waited for ran in real background sessions on 2026-10-21, among them a
+background worker taking its mark; it was registered once the owner approved the
+text the model reads (D14-8). The `delegate` skill (`/jam:delegate`) teaches the
+model when to delegate, how to brief a worker, and how to wait for it and
+exchange messages with it through `SendMessage` (D15). On 2026-10-24 the
+acceptance criteria were checked end to end on Claude Code 2.1.309 (see
+"Acceptance check" in `docs/decisions.md`).
 
 ## License
 

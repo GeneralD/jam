@@ -22,7 +22,7 @@ def platform_fact(title):
 
 class PermissionModeTest(unittest.TestCase):
     def test_the_platform_facts_record_that_no_mode_held_a_message(self):
-        fact = platform_fact("Cross-session messages and permission modes (observed on 2.1.309, 2026-10-24).**")
+        fact = platform_fact("Cross-session messages and permission modes (observed on 2.1.309, 2026-10-24 and 2026-10-28).**")
         for phrase in (
             "The `SendMessage` tool description says that a session running in a different permission mode holds cross-session messages for its user's approval and may let them expire, and that a `[Cross-session delivery notice]` tells the sender when a session on the same machine holds or refuses one.",
             "a background session in `auto` exchanged messages in both directions with `--bg` workers started in `auto`, `manual`, `acceptEdits`, `plan`, `dontAsk` and `bypassPermissions`",
@@ -31,7 +31,6 @@ class PermissionModeTest(unittest.TestCase):
             "No message was held and no `[Cross-session delivery notice]` arrived.",
             'Delivered messages carried `from-mode="prompting"` for five of those modes and `from-mode="bypass"` for `bypassPermissions`',
             "so the harness sorts modes into at least two classes, and a message across them was not held either.",
-            "A foreground session was not tried, and what makes a session hold a message is not known.",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, fact)
@@ -104,8 +103,6 @@ class SessionVariablesTest(unittest.TestCase):
             "`id` is the last path component of `CLAUDE_JOB_DIR` when that passes the id check and the session id starts with it, else null.",
             'The short id is never cut from the first 8 characters of the session id: that relation was observed (see "`--session-id` under `--bg`") but is not documented, so it only confirms a name the job directory supplies.',
             "A foreground session started from the shell of a background session inherits that session's `CLAUDE_JOB_DIR`, and the check keeps it from reporting the other session's short id as its own (#20).",
-            'The check has a cost. `/clear` gives a background session a new session id (see "Session variables"), and its job directory is expected to keep the old name, so from then on the command run through Bash reports `id` as null where it used to report the right one.',
-            "Whether the `list` row's `sessionId` follows `/clear` is unverified, so the fallback below may find no row; the `whoami` description then tells the model that its short id is unknown.",
             "A wrong id is worse than none: the `stop` description relies on it to keep a session from stopping itself, and a peer given it could pass it to `stop`.",
             "If a later version drops the relation, `id` is null everywhere, and the caller falls back to `list` as below.",
             "so after `/clear`, or `--continue` and `--resume` without an explicit id, the MCP answer may be stale, while the `session_id` from the command run through Bash is always current.",
@@ -116,22 +113,8 @@ class SessionVariablesTest(unittest.TestCase):
         for removed in ("a peer would use it as an address", "when that passes the id check, else null", "unless that session was started from the shell of a background session and inherited its job directory", '(see "Background session commands") but is not documented', "while the command run through Bash is always current"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, d12)
-        fact = platform_fact("Session variables (documented).**")
+        fact = platform_fact("Session variables (documented; observed on 2.1.309).**")
         self.assertIn("so it is absent in a foreground session unless that session was started from the shell of a background session, which exports it to everything it starts (#20), and not guaranteed to an MCP server", fact)
-
-
-class OpenItemsTest(unittest.TestCase):
-    def test_the_open_items_drop_the_two_answered_questions_and_narrow_the_notice_item(self):
-        items = flat(section(DECISIONS, "Open verification items"))
-        self.assertIn("with the plugin installed into an empty configuration directory, a later one ran all three SessionStart hooks, the prune among them, once each with exit 0", items)
-        self.assertIn('(see "Install from the public repository" under "Plugin platform facts"). An interactive session and the model acting on the notice are still unchecked.', items)
-        for removed in (
-            "Which permission mode should `spawn` give a worker",
-            "once printed success while the session stayed in `claude agents` as idle",
-            "an interactive session, the model acting on the notice, and the prune are still unchecked",
-        ):
-            with self.subTest(removed=removed):
-                self.assertNotIn(removed, items)
 
 
 if __name__ == "__main__":
