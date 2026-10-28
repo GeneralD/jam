@@ -148,7 +148,7 @@ class ToolsListTest(unittest.TestCase):
                 "stale",
                 "run through bash, always has the current `session_id`",
                 "after /clear its `id` is null",
-                "if `id` is null, call `list` and match `session_id`",
+                "if `id` is null, run `whoami` through bash, call `list`, and match its current `session_id`",
                 "if no row matches, your short id is unknown, so do not guess it",
             ],
         }

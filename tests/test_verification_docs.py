@@ -109,7 +109,7 @@ class SessionVariablesTest(unittest.TestCase):
             "A wrong id is worse than none: the `stop` description relies on it to keep a session from stopping itself, and a peer given it could pass it to `stop`.",
             "If a later version drops the relation, `id` is null everywhere, and the caller falls back to `list` as below.",
             "so after `/clear`, or `--continue` and `--resume` without an explicit id, the MCP answer may be stale, while the `session_id` from the command run through Bash is always current.",
-            "Because `CLAUDE_JOB_DIR` is documented only for background sessions and their shell commands, `id` is null in a foreground session (the check above covers one that inherited a job directory) and not guaranteed over MCP; the caller then matches `session_id` in `list`.",
+            "Because `CLAUDE_JOB_DIR` is documented only for background sessions and their shell commands, `id` is null in a foreground session (the check above covers one that inherited a job directory) and not guaranteed over MCP; the caller then runs `whoami` through Bash and matches its current `session_id` in `list`.",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d12)

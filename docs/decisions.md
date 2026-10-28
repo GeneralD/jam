@@ -294,10 +294,11 @@ pass).
   is always current. Because `CLAUDE_JOB_DIR` is documented only for background
   sessions and their shell commands, `id` is null in a foreground session (the
   check above covers one that inherited a job directory) and not guaranteed over
-  MCP; the caller then matches `session_id` in `list`. Reading the short id from
-  the harness listing inside `whoami` would add a harness call and is deferred.
-  Only the two named variables are read: another `CLAUDE_CODE_SESSION_*`
-  variable carries a credential.
+  MCP; the caller then runs `whoami` through Bash and matches its current
+  `session_id` in `list`. Reading the short id from the harness listing inside
+  `whoami` would add a harness call and is deferred. Only the two named
+  variables are read: another `CLAUDE_CODE_SESSION_*` variable carries a
+  credential.
 - **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
   but neither entry point offers it, and supplying it is an unknown-argument
   error (a tool result with `isError`, or CLI exit 2). A mode chosen by the
