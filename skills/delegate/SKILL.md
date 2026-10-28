@@ -42,7 +42,9 @@ and what is left open."
 
 - Do not poll `list` or `ListAgents`, and do not ask "are you done?". To hear
   when the session finishes its turn, call `SendMessage` with its name,
-  `notify_when_idle: true` and no message, then carry on or end your turn.
+  `notify_when_idle: true` and a one-line message such as "No reply needed."
+  (the session receives it; an empty `message` is refused), then carry on or
+  end your turn.
 - To reply to a `<cross-session-message from="...">`, copy its `from` as your
   `to`.
 
