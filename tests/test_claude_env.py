@@ -131,6 +131,11 @@ class IdentityTest(unittest.TestCase):
             with self.subTest(job_dir=job_dir):
                 self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, expected)
 
+    def test_a_job_directory_name_equal_to_or_longer_than_the_session_id_is_judged_by_the_same_prefix_rule(self):
+        for job_dir, expected in ((f"/jobs/{SESSION_ID}", SESSION_ID), (f"/jobs/{SESSION_ID}-extra", None)):
+            with self.subTest(job_dir=job_dir):
+                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, expected)
+
     def test_after_a_clear_the_new_session_id_gives_no_short_id(self):
         # /clear gives a background session a new session id while its job directory keeps the old name (D12).
         cleared = "cccc3333-0000-4000-8000-000000000002"

@@ -286,8 +286,8 @@ pass).
   fallback below may find no row; the `whoami` description then tells the model
   that its short id is unknown. A wrong id is worse than none: the `stop`
   description relies on it to keep a session from stopping itself, and a peer
-  would use it as an address. If a later version drops the relation, `id` is
-  null everywhere, and the caller falls back to `list` as below. The
+  given it could pass it to `stop`. If a later version drops the relation, `id`
+  is null everywhere, and the caller falls back to `list` as below. The
   documentation says an MCP server keeps the id it was started with, so after
   `/clear`, or `--continue` and `--resume` without an explicit id, the MCP
   answer may be stale, while the `session_id` from the command run through Bash

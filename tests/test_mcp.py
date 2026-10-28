@@ -144,7 +144,13 @@ class ToolsListTest(unittest.TestCase):
         phrases = {
             "spawn": ["complete brief", "do not spawn again", "workspace not trusted", "from the main conversation only"],
             "stop": ["never your own"],
-            "whoami": ["stale", "after /clear its `id` is null", "if no row matches, your short id is unknown"],
+            "whoami": [
+                "stale",
+                "run through bash, always has the current `session_id`",
+                "after /clear its `id` is null",
+                "if `id` is null, call `list` and match `session_id`",
+                "if no row matches, your short id is unknown, so do not guess it",
+            ],
         }
         described = {tool["name"]: tool["description"].lower() for tool in self.tools()}
         for name, expected in phrases.items():
