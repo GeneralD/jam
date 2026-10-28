@@ -116,8 +116,9 @@ OPERATIONS: Final = (
         "show this session's ids",
         "Tell this session who it is: `session_id` and the short `id`. Over MCP the value is the one "
         "this server started with and can be stale after /clear or --continue; the command line "
-        "`whoami`, run through Bash, is always current. If `id` is null, call `list` and match "
-        "`session_id`.",
+        "`whoami`, run through Bash, always has the current `session_id`, but after /clear its `id` is "
+        "null. If `id` is null, run `whoami` through Bash, call `list`, and match its current `session_id`; "
+        "if no row matches, your short id is unknown, so do not guess it.",
         (),
         _whoami,
     ),

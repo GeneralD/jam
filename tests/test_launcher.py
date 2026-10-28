@@ -253,10 +253,10 @@ class ListTest(LauncherTestCase):
 
 class WhoamiTest(LauncherTestCase):
     def test_it_prints_the_session_id_and_the_job_name(self):
-        env = self.env(CLAUDE_CODE_SESSION_ID=SESSION_ID, CLAUDE_JOB_DIR="/jobs/abcd1234")
+        env = self.env(CLAUDE_CODE_SESSION_ID=SESSION_ID, CLAUDE_JOB_DIR="/jobs/aaaa1111")
         proc = self.jam("whoami", env=env)
         self.assertExit(proc, 0)
-        self.assertEqual(json.loads(proc.out), {"session_id": SESSION_ID, "id": "abcd1234"})
+        self.assertEqual(json.loads(proc.out), {"session_id": SESSION_ID, "id": "aaaa1111"})
 
     def test_it_fails_with_one_line_when_the_session_id_is_unset(self):
         proc = self.jam("whoami")

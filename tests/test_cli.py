@@ -138,12 +138,18 @@ class OtherCommandsTest(unittest.TestCase):
         self.assertEqual((code, out, err), (1, "", "jam: stop failed\n"))
 
     def test_whoami_prints_the_identity_from_the_injected_environment(self):
-        env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/abcd1234", TOKEN_VAR: TOKEN}
+        env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/aaaa1111", TOKEN_VAR: TOKEN}
         out, err = io.StringIO(), io.StringIO()
         code = cli.main(["whoami"], env=env, stdin=text_stream(), stdout=out, stderr=err)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out.getvalue()), {"session_id": SESSION_ID, "id": "abcd1234"})
+        self.assertEqual(json.loads(out.getvalue()), {"session_id": SESSION_ID, "id": "aaaa1111"})
         self.assertNotIn(TOKEN, out.getvalue() + err.getvalue())
+
+    def test_whoami_prints_a_null_id_for_a_job_directory_inherited_from_another_session(self):
+        out, err = io.StringIO(), io.StringIO()
+        code = cli.main(["whoami"], env={SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/bbbb2222"}, stdin=text_stream(), stdout=out, stderr=err)
+        self.assertEqual((code, err.getvalue()), (0, ""))
+        self.assertEqual(json.loads(out.getvalue()), {"session_id": SESSION_ID, "id": None})
 
     def test_whoami_without_a_session_id_fails_naming_the_variable_only(self):
         out, err = io.StringIO(), io.StringIO()

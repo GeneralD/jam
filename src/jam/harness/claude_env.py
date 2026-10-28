@@ -53,12 +53,15 @@ def _absolute(value: object) -> Optional[str]:
 def identity(env: Mapping[str, str]) -> Identity:
     """The calling session's ids; the message names the variable and never shows its value.
 
-    The short id is the name of the job directory when that is a valid id. It is
-    never cut from the session id, because no prefix relation between the two is
-    documented.
+    The short id is the name of the job directory when that is a valid id and the
+    session id starts with it. A session started from the shell of a background
+    session inherits that session's job directory, and the prefix check keeps it
+    from taking the other session's short id (#20). The short id is never cut from
+    the session id, because no prefix relation between the two is documented; the
+    relation only confirms a name the job directory supplies.
     """
     session_id = env.get(SESSION_ID_VAR)
     if not is_id(session_id):
         raise HarnessError(f"{SESSION_ID_VAR} is not set to a valid session id")
     short = PurePath(env.get(JOB_DIR_VAR) or "").name
-    return Identity(session_id, short if is_id(short) else None)
+    return Identity(session_id, short if is_id(short) and session_id.startswith(short) else None)

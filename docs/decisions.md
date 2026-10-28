@@ -272,19 +272,33 @@ pass).
   stale.** It is a pure function of the environment and makes no harness call:
   `session_id` is that variable (a failure naming the variable, never its value,
   when it is missing or malformed), and `id` is the last path component of
-  `CLAUDE_JOB_DIR` when that passes the id check, else null. The short id is
-  never cut from the first 8 characters of the session id: that relation was
-  observed (see "Background session commands") but is not documented. The
+  `CLAUDE_JOB_DIR` when that passes the id check and the session id starts with
+  it, else null. The short id is never cut from the first 8 characters of the
+  session id: that relation was observed (see "`--session-id` under `--bg`") but
+  is not documented, so it only confirms a name the job directory supplies. A
+  foreground session started from the shell of a background session inherits
+  that session's `CLAUDE_JOB_DIR`, and the check keeps it from reporting the
+  other session's short id as its own (#20). The check has a cost. `/clear`
+  gives a background session a new session id (see "Session variables"), and its
+  job directory is expected to keep the old name, so from then on the command
+  run through Bash reports `id` as null where it used to report the right one.
+  Whether the `list` row's `sessionId` follows `/clear` is unverified, so the
+  fallback below may find no row; the `whoami` description then tells the model
+  that its short id is unknown. A wrong id is worse than none: the `stop`
+  description relies on it to keep a session from stopping itself, and a peer
+  given it could pass it to `stop`. If a later version drops the relation, `id`
+  is null everywhere, and the caller falls back to `list` as below. The
   documentation says an MCP server keeps the id it was started with, so after
   `/clear`, or `--continue` and `--resume` without an explicit id, the MCP
-  answer may be stale, while the command run through Bash is always current.
-  Because `CLAUDE_JOB_DIR` is documented only for background sessions and their
-  shell commands, `id` is null in a foreground session, unless that session was
-  started from the shell of a background session and inherited its job directory
-  (#20), and not guaranteed over MCP; the caller then matches `session_id` in
-  `list`. Reading the short id from the harness listing inside `whoami` would
-  add a harness call and is deferred. Only the two named variables are read:
-  another `CLAUDE_CODE_SESSION_*` variable carries a credential.
+  answer may be stale, while the `session_id` from the command run through Bash
+  is always current. Because `CLAUDE_JOB_DIR` is documented only for background
+  sessions and their shell commands, `id` is null in a foreground session (the
+  check above covers one that inherited a job directory) and not guaranteed over
+  MCP; the caller then runs `whoami` through Bash and matches its current
+  `session_id` in `list`. Reading the short id from the harness listing inside
+  `whoami` would add a harness call and is deferred. Only the two named
+  variables are read: another `CLAUDE_CODE_SESSION_*` variable carries a
+  credential.
 - **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
   but neither entry point offers it, and supplying it is an unknown-argument
   error (a tool result with `isError`, or CLI exit 2). A mode chosen by the
@@ -1037,9 +1051,11 @@ checked against the release notes for
   session's id: the command prints `warning: --bg manages the session id;
   ignoring --session-id`, and the session gets the id the platform assigns. The
   short id in the `backgrounded` line was the first 8 characters of `sessionId`
-  in the one observation so far; that is one observation and is not relied on.
-  jam takes the short id from the spawn output and never derives it from
-  `sessionId` (D12).
+  in that observation, and the same held for every background session seen
+  since, among them the eight of 2026-10-24. No document states it, so jam never
+  derives the short id from `sessionId`: it takes it from the spawn output, and
+  `whoami` uses the relation only to reject a job directory that belongs to
+  another session (D12).
 - **The background isolation guard (observed once on 2.1.300, 2026-10-21).** In
   one `--bg` worker (Haiku, under `bypassPermissions`), the first edit inside
   its own checkout was refused with a tool error, not a hook error: "This
@@ -1159,7 +1175,8 @@ from a background session in `auto` mode.
   the one-time notice, and the same `Write`, re-issued, created the file.
 - **Found.** In that print-mode session, `whoami` returned its own `session_id`
   with the short id of the background session whose shell had started it,
-  because the session inherited `CLAUDE_JOB_DIR` (#20).
+  because the session inherited `CLAUDE_JOB_DIR` (#20). Fixed afterwards:
+  `whoami` reports a null `id` in that case (D12).
 
 Every worker was then stopped and removed, and a re-list matched the listing
 from before.

@@ -113,17 +113,39 @@ class IdentityTypeTest(unittest.TestCase):
 
 class IdentityTest(unittest.TestCase):
     def test_the_session_id_and_the_job_directory_name_give_the_identity(self):
-        env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/abcd1234"}
-        self.assertEqual(claude_env.identity(env), session_module.Identity(SESSION_ID, "abcd1234"))
+        env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/aaaa1111"}
+        self.assertEqual(claude_env.identity(env), session_module.Identity(SESSION_ID, "aaaa1111"))
+
+    def test_a_job_directory_the_session_id_does_not_start_with_gives_no_short_id(self):
+        # A session started from the shell of a background session inherits that session's job directory (#20).
+        for job_dir in ("/jobs/bbbb2222", "/jobs/AAAA1111", "/jobs/aaaa1112", "/jobs/0000-4000"):
+            with self.subTest(job_dir=job_dir):
+                self.assertIsNone(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id)
 
     def test_there_is_no_short_id_without_a_job_directory(self):
         self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID}), session_module.Identity(SESSION_ID, None))
 
+    def test_a_job_directory_name_of_any_length_counts_only_as_a_prefix_of_the_session_id(self):
+        # The name is checked, never cut: no length is assumed for it.
+        for job_dir, expected in (("/jobs/aaaa", "aaaa"), ("/jobs/aaaa1111-0000", "aaaa1111-0000"), ("/jobs/aaaa1111-zzzz", None)):
+            with self.subTest(job_dir=job_dir):
+                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, expected)
+
+    def test_a_job_directory_name_equal_to_or_longer_than_the_session_id_is_judged_by_the_same_prefix_rule(self):
+        for job_dir, expected in ((f"/jobs/{SESSION_ID}", SESSION_ID), (f"/jobs/{SESSION_ID}-extra", None)):
+            with self.subTest(job_dir=job_dir):
+                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, expected)
+
+    def test_after_a_clear_the_new_session_id_gives_no_short_id(self):
+        # /clear gives a background session a new session id while its job directory keeps the old name (D12).
+        cleared = "cccc3333-0000-4000-8000-000000000002"
+        self.assertEqual(claude_env.identity({SESSION_VAR: cleared, JOB_VAR: "/jobs/aaaa1111"}), session_module.Identity(cleared, None))
+
     def test_trailing_slashes_on_the_job_directory_are_tolerated(self):
         # The name is the last path component, not whatever follows the last slash.
-        for job_dir in ("/jobs/abcd1234/", "/jobs/abcd1234//"):
+        for job_dir in ("/jobs/aaaa1111/", "/jobs/aaaa1111//"):
             with self.subTest(job_dir=job_dir):
-                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, "abcd1234")
+                self.assertEqual(claude_env.identity({SESSION_VAR: SESSION_ID, JOB_VAR: job_dir}).id, "aaaa1111")
 
     def test_the_short_id_is_never_the_front_of_the_session_id(self):
         for extra in ({}, {JOB_VAR: "/jobs/.hidden"}):
@@ -147,7 +169,7 @@ class IdentityTest(unittest.TestCase):
                 self.assertNotIn(marker, str(caught.exception))
 
     def test_no_other_session_variable_is_ever_read_or_shown(self):
-        env = RecordingEnv({SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/abcd1234", TOKEN_VAR: TOKEN})
+        env = RecordingEnv({SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/aaaa1111", TOKEN_VAR: TOKEN})
         found = claude_env.identity(env)
         self.assertTrue(set(env.reads) <= {SESSION_VAR, JOB_VAR}, env.reads)
         self.assertNotIn(TOKEN, repr(found))

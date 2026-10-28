@@ -190,7 +190,9 @@ class DecisionsTest(unittest.TestCase):
         facts = flat(section(DECISIONS, "Plugin platform facts"))
         self.assertIn("**`--session-id` under `--bg` (verified by experiment, 2026-10-21, Claude Code 2.1.300).**", facts)
         self.assertIn("warning: --bg manages the session id; ignoring --session-id", facts)
-        self.assertIn("one observation and is not relied on", facts)
+        self.assertIn("The short id in the `backgrounded` line was the first 8 characters of `sessionId` in that observation, and the same held for every background session seen since, among them the eight of 2026-10-24.", facts)
+        self.assertIn("No document states it, so jam never derives the short id from `sessionId`: it takes it from the spawn output, and `whoami` uses the relation only to reject a job directory that belongs to another session (D12).", facts)
+        self.assertNotIn("is not relied on", facts)
         self.assertNotIn("The id is the first 8 characters of `sessionId`.", facts)
 
     def test_the_open_verification_items_no_longer_ask_about_the_session_id(self):
