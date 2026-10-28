@@ -58,12 +58,6 @@ class WhatALiveSessionShowedTest(unittest.TestCase):
     def test_the_open_items_no_longer_ask_whether_the_tools_appear(self):
         self.assertNotIn("Do the four `mcp__plugin_jam_jam__*` tools appear", flat(section(DECISIONS, "Open verification items")))
 
-    def test_the_notice_item_says_what_the_hook_returned_and_not_that_the_model_received_it(self):
-        items = flat(section(DECISIONS, "Open verification items"))
-        self.assertIn("A print-mode session ran the notice hook, which returned its `additionalContext` (D13)", items)
-        self.assertNotIn("received the notice (D13)", items)
-        self.assertNotIn("which the change that added the hooks did not start", items)
-
     def test_the_readme_status_says_what_a_live_session_has_shown(self):
         status = flat(section(README, "Status"))
         self.assertNotIn("has not yet been run end to end in a live session", status)

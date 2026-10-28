@@ -38,10 +38,12 @@ under "Plugin platform facts"). The roles above (parent, worker) only describe
 who started whom in the experiment; see D10.
 
 **Caveat.** In the experiment the receiving parent was itself a
-`kind: background` session. Not verified: a foreground terminal session (a
-plain terminal or a zellij pane) being woken by a worker's message. The owner
-decided that this does not matter: jam only needs participating sessions to be
-registered with Claude Code's background session stack (see D4).
+`kind: background` session. A foreground terminal session was tried later, and
+a worker's message woke it (it ran in a tmux pane; see "Cross-session messages
+and permission modes" under "Plugin platform facts"); a plain terminal and a
+zellij pane were not tried. The owner had decided that whether one can be woken
+does not matter: jam only needs participating sessions to be registered with
+Claude Code's background session stack (see D4).
 
 Original design, now the fallback: delivering a prompt to a live session means
 writing to its pseudo-terminal, and reading a result means reading its screen.
@@ -82,8 +84,11 @@ adapter were ever added, and the core degrades gracefully without them.
 v1 ships only the Claude Code harness adapter and no environment adapter. jam
 does not depend on a terminal multiplexer: it works for sessions that are
 registered with Claude Code's background session stack (visible in
-`claude agents`). A session that is not registered there is out of scope for
-v1, and the README states that requirement.
+`claude agents` with an `id`). A session that is not registered there is out of
+scope for v1, and the README states that requirement. A foreground session
+shows up there as a row without an `id`, which jam skips; in the one check made,
+a worker's message woke one all the same (see "Cross-session messages and
+permission modes" under "Plugin platform facts").
 The environment seam stays so that a zellij adapter can be added later without
 touching the core, but it is not planned. Codex and other harnesses are out of
 scope.
@@ -189,10 +194,13 @@ Decided on 2026-10-15, from three independent designs reconciled into one.
   succeeded never raises because of the registry: `Jam.spawn` returns the id
   together with a `problem` text, so a caller is not tempted to respawn.
 - **Sweeping.** By file age only (30 days), not against the harness listing:
-  whether foreground sessions appear in `claude agents` is unverified, and a
-  listing-based sweep could delete the notes of live sessions the listing does
-  not show. The SessionStart hook calls `prune` on `startup` (D13). `remove`
-  exists but no hook calls it: SessionEnd registers nothing (D13), because a
+  the foreground session tried appeared in `claude agents` only as a row without
+  an `id` (see "Background session commands" under "Plugin platform facts"), yet
+  `adopt` wrote a start record for it (D14; the record stayed after the session
+  exited, and no worker mark was made because no ticket was waiting), and a
+  listing-based sweep could delete the files of live sessions it cannot match.
+  The SessionStart hook calls `prune` on `startup` (D13). `remove` exists but no
+  hook calls it: SessionEnd registers nothing (D13), because a
   stopped session stays in the full listing and a resumed one can return with
   the same id.
 - **Platform.** macOS and Linux (`fcntl`), local filesystem only. The data
@@ -279,12 +287,16 @@ pass).
   foreground session started from the shell of a background session inherits
   that session's `CLAUDE_JOB_DIR`, and the check keeps it from reporting the
   other session's short id as its own (#20). The check has a cost. `/clear`
-  gives a background session a new session id (see "Session variables"), and its
-  job directory is expected to keep the old name, so from then on the command
-  run through Bash reports `id` as null where it used to report the right one.
-  Whether the `list` row's `sessionId` follows `/clear` is unverified, so the
-  fallback below may find no row; the `whoami` description then tells the model
-  that its short id is unknown. A wrong id is worse than none: the `stop`
+  gives a background session a new session id and its job directory keeps the
+  old name (see "Session variables"), so from then on the command run through
+  Bash reports `id` as null where it used to report the right one. In the one
+  check made (a background session attached in a terminal), the `list` row kept
+  its `id` and held the new `sessionId` in the first listing read, about 4
+  seconds after the `/clear` was sent (see "Session variables"), so the fallback
+  below found the row; the id an MCP server sees after `/clear` was not checked.
+  Where no row matches, the `whoami` description tells the model that its short
+  id is unknown. A wrong id is worse
+  than none: the `stop`
   description relies on it to keep a session from stopping itself, and a peer
   given it could pass it to `stop`. If a later version drops the relation, `id`
   is null everywhere, and the caller falls back to `list` as below. The
@@ -295,8 +307,11 @@ pass).
   sessions and their shell commands, `id` is null in a foreground session (the
   check above covers one that inherited a job directory) and not guaranteed over
   MCP; the caller then runs `whoami` through Bash and matches its current
-  `session_id` in `list`. Reading the short id from the harness listing inside
-  `whoami` would add a harness call and is deferred. Only the two named
+  `session_id` in `list`. The foreground session tried (2026-10-28) had no row
+  there: `claude agents` listed it without an `id`, which `list` skips, so for it
+  the match finds nothing; it has no short id, and `whoami` leaves `id` null.
+  Reading the short id from the harness listing inside `whoami` would add a
+  harness call and is deferred. Only the two named
   variables are read: another `CLAUDE_CODE_SESSION_*` variable carries a
   credential.
 - **`permission_mode` is not exposed.** The core's `spawn` keeps the parameter,
@@ -327,10 +342,14 @@ pass).
   Descriptive names would only be worth it if tool search were seen hiding them.
 - **Verified later.** A print-mode session (`claude -p --plugin-dir .`, Claude
   Code 2.1.300, 2026-10-21) listed the server `plugin:jam:jam` as connected with
-  the four tools, and a call to `list` returned the live sessions. Still open
-  (also listed under "Open verification items"): `claude` being on the PATH of an
-  MCP server that runs inside a `--bg` worker. A failure reads "cannot run
-  'claude': executable not found"; add a binary override only if it happens.
+  the four tools, and a call to `list` returned the live sessions. On
+  2026-10-28 (Claude Code 2.1.309) the server inside a `--bg` worker also
+  answered `list`, which starts `claude` by its bare name, so in that run
+  `claude` was on the PATH of an MCP server in a worker, on that machine. A
+  worker's environment comes from the supervisor, not from the spawning shell,
+  and how the supervisor was started was not recorded, so a machine whose
+  supervisor starts with a narrower PATH may still fail. A failure reads "cannot
+  run 'claude': executable not found"; add a binary override only if it happens.
 - **Deferred.** Self-stop refusal in code (the short id is not reliably known
   over MCP, so the `stop` description warns instead), a `remove` or `prune`
   verb, and the MCP extras (server instructions, pagination, structured output,
@@ -480,18 +499,34 @@ through the same launcher, with `|| exit 0` appended; it is D14.
   1.5 seconds, and be a deliberate reviewed change.
 - **Partly verified.** No session was started to test this change itself. A
   later print-mode session (`claude -p --plugin-dir .`, 2026-10-21) ran the
-  notice at `startup` and returned its `additionalContext`. Still open, and
-  listed under "Open verification items": the notice reaching the model in an
-  interactive session and the prune running once, for which the one owner check
-  is `claude --plugin-dir .` in a trusted directory, not `--bg`. The hooks'
-  timings in a real session are not measured either. Observed later (2026-10-21,
-  Claude Code 2.1.300, see D14): a `--bg` worker's first session start reported
-  `source: startup` and the spawn directory as `cwd`, and its mark existed
-  afterwards. The delay between the spawn and that first session start must also
-  stay within 300 seconds for the mark to exist; the one run with a ticket
-  measured 0.9 seconds. A `claude --bg --resume` started a copy whose session
-  start reported `fork`, so `adopt` now skips the ticket for `resume` and `fork`
-  as well, which only unit tests cover.
+  notice at `startup` and returned its `additionalContext`. Observed later
+  (2026-10-21, Claude Code 2.1.300, see D14): a `--bg` worker's first session
+  start reported `source: startup` and the spawn directory as `cwd`, and its
+  mark existed afterwards. The delay between the spawn and that first session
+  start must also stay within 300 seconds for the mark to exist; the one run
+  with a ticket measured 0.9 seconds. A `claude --bg --resume` started a copy
+  whose session start reported `fork`, so `adopt` now skips the ticket for
+  `resume` and `fork` as well, which only unit tests cover. An interactive
+  session (`claude --plugin-dir .` in a trusted directory, not `--bg`, in a
+  private tmux server with the `CLAUDE_*` variables of the parent session unset;
+  2026-10-28, Claude Code 2.1.309) ran all three SessionStart hooks once each at
+  `startup`, the prune among them, each finishing with status 0, and the notice
+  arrived as a `hook_success` attachment carrying its `additionalContext`. The
+  debug log, started with `--debug-file` with a second logging plugin loaded,
+  reported 211, 212 and 213 ms for the three jam hooks; the other hooks, a tiny
+  shell script among them, reported 210 to 221 ms, so about 0.21 seconds is an
+  upper bound shared by hooks that start together, not a measure of any one of
+  them. The model (Sonnet 5.5 at `xhigh` effort, in `auto` mode) was told to
+  rely only on the notice (no MCP tool, no filesystem search) and to run
+  `whoami` from the shell, and its first tool call was `whoami` through Bash in
+  the form the notice gives. So the run shows that the model copied the form the
+  notice gives, not that the notice made it choose the command. `id` was null,
+  as D12 says it is in a foreground session: `CLAUDE_JOB_DIR` was unset there,
+  as in a terminal outside any background session. The model's own explanation
+  of the null was wrong (it said the session was not started by `spawn`), and
+  the notice does not explain a null `id`; the `whoami` tool description does.
+  It was one run, so it does not show that a model left to choose would use the
+  notice unprompted.
 
 ## D14. The foreign-repository guard
 
@@ -504,15 +539,19 @@ test pins that entry. The writers of the marks are in place (`adopt` and
 `spawn`, see "Loop protection"), and the live checks it waited for ran on
 2026-10-21 (see "Verified in real sessions"): a worker started after a spawn
 ticket carried its mark from its first session start, which came well within the
-300 seconds of D13, and was not denied. Two points stay open: the skip of
-`resume` and `fork`, which only unit tests cover, and a resume that keeps the
-session id (see "Open verification items"). The skip can only withhold a ticket,
-which costs a worker at most one extra denial per repository. If
-`CLAUDE_PROJECT_DIR` or `CLAUDE_CONFIG_DIR` differs on a resume that keeps the
-id, the guard takes another start repository or configuration directory for that
-session, with the same bound. So registration did not wait for either, and it
-was registered once the owner approved the text the model reads (D14-8). D6
-states the intent; this entry is how it works.
+300 seconds of D13, and was not denied. One point stays open: the skip of
+`resume` and `fork` itself, which only unit tests cover; real sessions have
+reported the sources `resume`, `fork` and `clear` (see "Resuming a background
+session" and "Session variables" under "Plugin platform facts"). The skip can
+only withhold a ticket, which costs a worker at most one extra denial per
+repository. On a resume that keeps the id, the SessionStart hook saw
+`CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` with the values of the session's
+start even when the caller's working directory, project directory or spelling of
+the configuration directory differed (see "Resuming a background session"), so
+the guard is expected to keep the start repository and configuration directory
+there; no guarded edit was made in a resumed session. So registration did not
+wait for that point, and it was registered once the owner approved the text the
+model reads (D14-8). D6 states the intent; this entry is how it works.
 
 - **Event and entry.** PreToolUse, matcher `Edit|Write|MultiEdit|NotebookEdit`
   (letters and `|` only, which the platform reads as an exact-name list; never
@@ -654,9 +693,12 @@ states the intent; this entry is how it works.
   costs a worker nothing, and it keeps a resumed session or a copy from taking a
   ticket meant for a new worker. The mark is keyed by the session id, so a
   resume that keeps the id keeps the mark, while `/clear` and a fork get a new
-  id and so start without one; the one `claude --bg --resume` tried started a
-  copy with a new id (see "Plugin platform facts"). The mark stays until the
-  sweep removes it, 30 days after the spawn; after that the per-pair claim and
+  id and so start without one. On 2.1.309 a `claude --bg --resume` with no other
+  flag, run 20 seconds or more after a stop, kept the id; one with `--plugin-dir`
+  and a prompt added (the only flag variant tried), and one run within about 3
+  seconds of a stop, started a copy with a new id. jam's marks were not part of
+  those runs (see "Resuming a background session" under "Plugin platform
+  facts"). The mark stays until the sweep removes it, 30 days after the spawn; after that the per-pair claim and
   the hourly limit still bound the loop. Independently of recognition, a denial
   is given at most once per (session, repository) through the `O_EXCL` claim,
   however often the edit is retried, the session resumed or the hook run in
@@ -713,11 +755,13 @@ states the intent; this entry is how it works.
   `bypassPermissions`, and each worker was followed by `stop`, `rm` and a
   re-list. PreToolUse fires inside a `--bg` worker. There `CLAUDE_PROJECT_DIR`
   is the spawn directory and `CLAUDE_CONFIG_DIR` the configuration directory,
-  and both stay the same after `EnterWorktree`. The one resume tried, `claude
-  --bg --resume` from the same directory, started a copy with a new id, which
-  had the same values; a resume that keeps the id was not seen (see "Open
-  verification items"). A JSON denial holds under `bypassPermissions`. In both
-  runs that were denied, the original session and the copy its resume started, a
+  and both stay the same after `EnterWorktree`. The one resume tried then,
+  `claude --bg --resume` from the same directory with `--plugin-dir`, `--model`,
+  `--permission-mode`, `--disallowedTools` and a prompt added, started a copy
+  with a new id, which had the same values; a resume that keeps the id was seen
+  later, and its SessionStart hook saw the values of the session's start (see
+  "Resuming a background session" under "Plugin platform facts"). A JSON denial
+  holds under `bypassPermissions`. In both runs that were denied, the original session and the copy its resume started, a
   Haiku worker whose prompt asked it to decide what to do after a refusal
   re-issued the denied edit, as the reason invites it to: it saw the reason as
   `PreToolUse:Write hook error: <reason>`, wrote the same file again, and the
@@ -820,7 +864,7 @@ states the intent; this entry is how it works.
      spawn is followed by `stop`, `rm` and a re-list.
   10. Shape of the work: the core merged without registering anything. The
       writers of the spawn tickets and the `worker.<id>` marks are in place
-      (D13, `adopt`), and the live checks above ran, leaving open two points
+      (D13, `adopt`), and the live checks above ran, leaving open one point
       whose cost is bounded (see the status above), so the change that
       registered the hook waited only for D14-8, which the owner answered on
       2026-10-22.
@@ -1009,36 +1053,52 @@ checked against the release notes for
   worker answered that it was unset. Workers are started by the supervisor
   from a pre-warmed pool, not from the spawning shell. Anything a worker must
   know has to travel in the prompt or in a file.
-- **Background session commands (observed on 2.1.300).** `claude --bg [-n name]
-  [--permission-mode mode] -- <prompt>` prints `backgrounded · <id> · <name>`
-  (with terminal colors) and exits 0; the `--` makes a prompt that starts with a
-  dash safe. `claude agents --json` rows have `id`, `sessionId`, `name`, `cwd`,
-  `kind`, `startedAt`, `state`, and, while the session runs, `pid` and `status`
-  (`busy` or `idle`). `claude stop` removes a session from that plain listing at
-  once; with `--all` the row stays, without `pid` or `status`, until `claude
-  rm`, after which it is gone from both. The `state` seen right after a stop was
-  `stopped` in two runs and `done` in a third, so it is treated as a
-  pass-through string. The help text says the plain listing also includes
-  interactive sessions, but only background ones have been seen. A session's
-  transcript is a JSONL file in the project directory named after its
-  `sessionId`; `claude logs` shows only a terminal redraw. Once, a row came back
-  without `id`; the adapter skips a row without a usable id.
-- **Cross-session messages and permission modes (observed on 2.1.309,
-  2026-10-24).** The `SendMessage` tool description says that a session running
-  in a different permission mode holds cross-session messages for its user's
-  approval and may let them expire, and that a `[Cross-session delivery notice]`
-  tells the sender when a session on the same machine holds or refuses one. In
-  this check, a background session in `auto` exchanged messages in both
-  directions with `--bg` workers started in `auto`, `manual`, `acceptEdits`,
-  `plan`, `dontAsk` and `bypassPermissions`. The worker started by jam's
-  `spawn`, which passes no mode, ran in `auto`, the `permissions.defaultMode` of
-  that configuration. The worker started with `manual` ran in what its
+- **Background session commands (observed on 2.1.300 and 2.1.309).** `claude
+  --bg [-n name] [--permission-mode mode] -- <prompt>` prints `backgrounded ·
+  <id> · <name>` (with terminal colors) and exits 0; the `--` makes a prompt
+  that starts with a dash safe. The rows of `claude agents --json` for
+  background sessions have `id`, `sessionId`, `name`, `cwd`, `kind`,
+  `startedAt`, `state`, and, while the session runs, `pid` and `status` (`busy`
+  or `idle`). `claude stop` removes a session from that plain listing at once;
+  with `--all` the row stays, without `pid` or `status`, until `claude rm`,
+  after which it is gone from both. The `state` seen right after a stop was
+  `stopped` in two runs and `done` in a third; on 2.1.309 (2026-10-28) it was
+  `done` for two sessions that had finished a turn and `stopped` for two copies
+  that never started one. It is treated as a pass-through string. The help text
+  says the plain listing also includes
+  interactive sessions, and it did on 2.1.309 (2026-10-28): a foreground session
+  is a row with `kind: interactive` and `pid`, `cwd`, `startedAt`, `sessionId`,
+  `name` and `status`, but no `id` and no `state`. A session's transcript is a
+  JSONL file in the project directory named after its `sessionId`; `claude
+  logs` shows only a terminal redraw. A row once came back without `id`; it may
+  have been such a row, but the cause was not established. The adapter skips a
+  row without a usable id, so `list` and `stop` do not reach a foreground
+  session, and the native `ListAgents` shows it by name.
+- **Cross-session messages and permission modes (observed on 2.1.309, 2026-10-24
+  and 2026-10-28).** The `SendMessage` tool description says that a session
+  running in a different permission mode holds cross-session messages for its
+  user's approval and may let them expire, and that a `[Cross-session delivery
+  notice]` tells the sender when a session on the same machine holds or refuses
+  one. In the first check (2026-10-24), a background session in `auto` exchanged
+  messages in both directions with `--bg` workers started in `auto`, `manual`,
+  `acceptEdits`, `plan`, `dontAsk` and `bypassPermissions`. The worker started
+  by jam's `spawn`, which passes no mode, ran in `auto`, the
+  `permissions.defaultMode` of that configuration. The worker started with `manual` ran in what its
   transcript records as `default`. No message was held and no `[Cross-session
   delivery notice]` arrived. Delivered messages carried `from-mode="prompting"`
   for five of those modes and `from-mode="bypass"` for `bypassPermissions`, so
   the harness sorts modes into at least two classes, and a message across them
-  was not held either. A foreground session was not tried, and what makes a
-  session hold a message is not known.
+  was not held either. A foreground session was tried once, on 2026-10-28: an
+  idle interactive session in `auto`, started in a tmux session of its own and
+  also connected through Remote Control, was sent a message by name from a
+  `--bg` worker started without a permission-mode flag (a worker started that
+  way ran in `auto` on 2026-10-24; its mode and the `from-mode` of the delivered
+  message were not recorded in this run). `SendMessage` reported success, with
+  the message in the session's inbox and not yet read, and the foreground
+  session then woke on its own, read it and replied. No message was held. It
+  was one run in a tmux pane; a plain terminal and a zellij pane were not tried,
+  nor was a foreground session in another mode, and what makes a session hold a
+  message is not known.
 - **Stop, then remove (last checked on 2.1.309, 2026-10-24).** Once, `claude
   stop` followed by `claude rm` printed success while the session stayed in
   `claude agents` as idle, and a second stop and rm removed it. It did not recur
@@ -1072,14 +1132,35 @@ checked against the release notes for
   jam's guard counts as the start repository (D14), so it added no denial there.
   While that worktree held uncommitted changes, `claude rm` refused to remove
   the session.
-- **Resuming a background session (observed on 2.1.300).** `claude --bg --resume
-  <id>`, run right after `claude stop <id>` had printed `stopped <id>` and with
-  no listing read in between, printed `note: session <id> is already running in
-  the background, so this started a copy as <new id>`. The copy's session start
-  reported `source: fork` with a new session id, and had the same `cwd`,
-  `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` as the original; it was started
-  from the same directory, so this does not tell whether they are inherited. A
-  resume that keeps the id has not been seen for a background session.
+- **Resuming a background session (observed on 2.1.300 and 2.1.309).** On
+  2.1.300, `claude --bg --resume <id>` with `--plugin-dir`, `--model`,
+  `--permission-mode`, `--disallowedTools` and a prompt added, run right after
+  `claude stop <id>` had printed `stopped <id>` and with no listing read in
+  between, printed `note: session <id> is already running in the background, so
+  this started a copy as <new id>`. The copy's session start reported `source:
+  fork` with a new session id, and had the same `cwd`, `CLAUDE_PROJECT_DIR` and
+  `CLAUDE_CONFIG_DIR` as the original. The form without those flags was not
+  tried on 2.1.300. On 2.1.309 (2026-10-28), a resume with no other flag, run
+  within about 3 seconds of a stop, started a copy with the same note, twice,
+  once after a plain listing had been read in between. Neither copy ran a turn
+  or left a transcript; the session-start log showed nothing for the first copy
+  and was not read for the second, so their `source` was not seen. After a
+  pause of 20 seconds or more (about 20, 20, 44 and 65 seconds were tried), the
+  same command with no other flag woke the same session: the note said it was
+  woken with its saved options (`--plugin-dir`, `-n` and `--model`), the id was
+  kept, and the session start reported `source: resume`, although the woken
+  session ran no turn and was listed as idle. No resume with no other flag was
+  tried between 3 and 20 seconds after a stop. With `--plugin-dir` and a prompt
+  added, the only flag variant tried on 2.1.309, run about 8 seconds after a
+  stop, the note said that the background session keeps its own saved options,
+  so the flags passed started a copy under a new id, and the copy reported
+  `source: fork`; the note named the flags, not the timing, and no other flag
+  was tried. The SessionStart hook of a resumed session saw the `cwd`,
+  `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` of the session's start, not the
+  caller's, in two runs: in one the caller ran from a subdirectory; in the other
+  it set `CLAUDE_CONFIG_DIR` with a trailing slash (the same directory, spelled
+  another way) and another `CLAUDE_PROJECT_DIR` together. Neither variable was
+  changed alone, and a different configuration directory was not tried.
 - **The data directory of a `--plugin-dir` plugin (observed once on 2.1.300).**
   A plugin named `jam-probe`, loaded with `--plugin-dir`, had
   `CLAUDE_PLUGIN_DATA` set to `<config>/plugins/data/jam-probe-inline`, where
@@ -1141,9 +1222,10 @@ checked against the release notes for
   unknown request that has an id with `-32601` at once. Because of the probe, the
   server may start twice per session start, so startup, `initialize`,
   `tools/list`, and unknown methods must do no I/O and create nothing.
-- **Session variables (documented).** `CLAUDE_CODE_SESSION_ID` is set in Bash
-  and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP
-  server subprocesses. For Bash and hooks it matches the hook input's
+- **Session variables (documented; observed on 2.1.309).**
+  `CLAUDE_CODE_SESSION_ID` is set in Bash and PowerShell tool subprocesses, hook
+  command subprocesses, and stdio MCP server subprocesses. For Bash and hooks it
+  matches the hook input's
   `session_id` and follows `/clear`; an MCP server keeps the id it was started
   with (the resumed id for `--resume <session-id>`, and possibly the initial
   startup id for `--continue` or `--resume` without an id). `CLAUDE_JOB_DIR` is
@@ -1151,7 +1233,13 @@ checked against the release notes for
   commands the session runs inherit it; it is documented for nothing else, so it
   is absent in a foreground session unless that session was started from the
   shell of a background session, which exports it to everything it starts (#20),
-  and not guaranteed to an MCP server.
+  and not guaranteed to an MCP server. Observed in a background session on
+  2.1.309 (2026-10-28): after `/clear`, `CLAUDE_CODE_SESSION_ID` in Bash held a
+  new id and the job directory kept its name, so `jam whoami` through Bash
+  reported the new `session_id` with a null `id`; the session start reported
+  `source: clear` with the new id, and the session's row in `claude agents
+  --json` kept its `id` and held the new `sessionId` in the first listing read
+  after it, about 4 seconds later (one session, attached in a terminal).
 
 ## Acceptance check (2026-10-24, Claude Code 2.1.309)
 
@@ -1183,22 +1271,12 @@ from before.
 
 ## Open verification items
 
-- Does a real session loaded with `claude --plugin-dir .`, started in a trusted
-  directory (not `--bg`), receive the notice at SessionStart, and does the
-  `startup`-only prune run once? A print-mode session ran the notice hook, which
-  returned its `additionalContext` (D13), and with the plugin installed into an
-  empty configuration directory, a later one ran all three SessionStart hooks,
-  the prune among them, once each with exit 0 (see "Install from the public
-  repository" under "Plugin platform facts"). An interactive session and the
-  model acting on the notice are still unchecked.
-- Is `claude` on the PATH of a jam MCP server that runs inside a `--bg` worker?
-  Environment variables do not reach workers, and whether the PATH does is
-  unverified. Check it by spawning from a worker, and follow any real spawn with
-  `stop`, `rm`, and a re-list.
-- Interactive (foreground) sessions: do they appear in `claude agents --json`,
-  and can a worker's message wake one?
-- A resume of a background session that keeps its id: the one tried started a
-  copy (see "Plugin platform facts"). Do `CLAUDE_PROJECT_DIR` and
-  `CLAUDE_CONFIG_DIR` keep their values there? The copy had the same values, but
-  it was started from the same directory, so it does not show that they are
-  inherited.
+None from the list of 2026-10-24: its four items were checked on 2026-10-28
+(Claude Code 2.1.309), and the results are in D2, D11, D12, D13, D14 and "Plugin
+platform facts". Points that are still unverified are named where they occur,
+among them the skip of `resume` and `fork` by `adopt` (D14), the notice being
+used by a model that is not told to rely on it (D13), a foreground session in a
+permission mode other than `auto`, in a plain terminal or in a zellij pane
+("Cross-session messages and permission modes" under "Plugin platform facts"),
+and a resume under a different configuration directory ("Resuming a background
+session" under "Plugin platform facts").
