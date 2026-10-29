@@ -23,7 +23,7 @@ from ..errors import (
     UnparseableOutput,
     WorkspaceNotTrusted,
 )
-from ..session import Session, Spawned, is_id
+from ..session import Session, Spawned
 
 DEFAULT_TIMEOUT: Final = 60.0
 
@@ -34,6 +34,11 @@ _TRUST_PATH: Final = re.compile(r"\bin\s+(.+?)\s+once\b")
 # Names and ids become argv entries, so a leading "-" would be read as a flag.
 _NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _MODE: Final = re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
+# `claude stop` and `claude rm` match the start of an id, so a prefix would stop one session and then look gone; only the whole short id is passed on.
+_SHORT_ID: Final = re.compile(r"[0-9a-f]{8}")
+# `claude rm` reports a refusal on stdout, and the same text names the commands that override it (read from the strings of the 2.1.309 binary, D17; no live refusal was seen).
+# Those lines are dropped: jam never forces a removal and must not hand the way to the model.
+_OVERRIDES: Final = ("--discard-unpushed", "--force-remove-worktree", "ctrl+x", "claude rm ")
 
 
 def _matches(pattern: re.Pattern[str], value: object) -> bool:
@@ -156,7 +161,7 @@ class ClaudeHarness:
         session_id = self._valid_id(session_id)
         result = self._run([self._bin, "rm", session_id], None)
         if result.returncode != 0:
-            raise HarnessError(f"removing {session_id} failed (exit {result.returncode}): {result.stderr.strip()}")
+            raise HarnessError(self._removal_failure(session_id, result))
         if self._listed(session_id) is not None:
             raise StillListed(session_id)
 
@@ -164,8 +169,15 @@ class ClaudeHarness:
         return next((s for s in self.list(include_exited=True) if s.id == session_id), None)
 
     @staticmethod
+    def _removal_failure(session_id: str, result: RunResult) -> str:
+        shown = (_ANSI.sub("", line).strip() for line in result.stdout.splitlines())
+        reasons = " ".join(line for line in shown if line and not any(token in line.lower() for token in _OVERRIDES))
+        detail = " | ".join(part for part in (result.stderr.strip(), reasons) if part)
+        return f"removing {session_id} failed (exit {result.returncode})" + (f": {detail}" if detail else "")
+
+    @staticmethod
     def _valid_id(session_id: str) -> str:
-        if not is_id(session_id):
+        if not _matches(_SHORT_ID, session_id):
             raise InvalidRequest(f"invalid session id: {session_id!r}")
         return session_id
 

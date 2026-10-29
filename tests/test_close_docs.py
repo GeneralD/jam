@@ -61,12 +61,19 @@ class DecisionsTest(unittest.TestCase):
             "not on its own initiative",
             "Nothing in code can tell who is asking (sessions are peers, D10)",
             "jam passes neither",
-            "(the session was stopped but not removed)",
+            'behind "the session was stopped, but removing it failed: "',
+            "The note leads so that clipping a long message cannot drop it",
+            "`claude rm` reports a refusal on stdout, not stderr, together with the commands that override it",
+            "drops any line that names `--discard-unpushed`, `--force-remove-worktree`, `ctrl+x` or the `claude rm` command",
+            "The Claude adapter passes on only the whole short id (eight hexadecimal characters, the form of the spawn output)",
+            "a prefix would stop one session, find no row with that exact id, and read as a session that stopping had deleted",
+            "on Claude Code it keeps the conversation",
+            "On the Devin CLI stopping already deletes the record (D16)",
             "`close` leaves the registry alone, as `stop` does",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d17)
-        for removed in ("was_running", "looks the id up in the full listing", "An id that is not listed is a failure", "comes back as it is"):
+        for removed in ("was_running", "looks the id up in the full listing", "An id that is not listed is a failure", "comes back as it is", "stopped but not removed"):
             with self.subTest(removed=removed):
                 self.assertNotIn(removed, d17)
 
@@ -80,9 +87,9 @@ class DecisionsTest(unittest.TestCase):
             "would have lost its record and its pidfile and gone on running",
             "**Verified (2026-10-29, Claude Code 2.1.309).**",
             "A second `claude stop` of a stopped, still listed session printed `stopped <id>` and exited 0.",
-            "A real refusal, over unpushed commits or uncommitted changes, was not provoked here",
+            "A real refusal, over unpushed commits or uncommitted changes, was not provoked here, so the stdout form of its text is unobserved",
             "`claude rm` on a running session without a stop was not tried",
-            "The Devin side is covered by unit tests only.",
+            "The Devin side is covered by unit tests only, through the real adapter over a scripted `devin` and a temporary store.",
             "Observed once and not explained",
             "so a session can vanish between the listing and the deletion",
         ):

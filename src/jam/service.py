@@ -74,6 +74,11 @@ def joined(sessions: Sequence[Session], records: Mapping[str, Record | None]) ->
     return tuple(Listed(session, records.get(session.id)) for session in sessions)
 
 
+# Leads a close failure that came after the stop, so that clipping a long harness message cannot cut it off. It claims only that the removal step failed:
+# the session is stopped, and whether it is still listed is for `list` to say.
+STOPPED_NOT_REMOVED: Final = "the session was stopped, but removing it failed: "
+
+
 def failure_reason(exc: Exception) -> str:
     """Only a RegistryError may carry its message; any other message could hold a path."""
     return str(exc) if isinstance(exc, RegistryError) else type(exc).__name__
@@ -124,15 +129,15 @@ class Jam:
         refusal. Stopping comes first for every session: it ends a run that is
         still going, it is harmless on one that is stopped but still listed
         (observed, D17), and on the Devin CLI it is the deletion itself, which
-        leaves no row to remove. A refusal comes back saying the session was
-        stopped, because it is then stopped and still listed.
+        leaves no row to remove. A failure of the removal comes back saying the
+        session was stopped, because a refusal leaves it stopped and still listed.
         """
         if self._harness.stop(session_id) is None:
             return
         try:
             self._harness.remove(session_id)
         except HarnessError as exc:
-            raise HarnessError(f"{exc} (the session was stopped but not removed)") from exc
+            raise HarnessError(f"{STOPPED_NOT_REMOVED}{exc}") from exc
 
     def _issued(self, cwd: str | Path) -> tuple[str | None, Exception | None]:
         """The ticket written for `cwd` and None, or None and the error that kept it from being written. Never raises."""

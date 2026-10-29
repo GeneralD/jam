@@ -143,7 +143,7 @@ class ToolsListTest(unittest.TestCase):
     def test_descriptions_carry_their_key_phrases(self):
         phrases = {
             "spawn": ["complete brief", "do not spawn again", "workspace not trusted", "from the main conversation only"],
-            "stop": ["never your own", "`close` also deletes it"],
+            "stop": ["never your own", "`close` also deletes it", "on the devin cli stopping already deletes it"],
             "close": [
                 "stop it, then delete it",
                 "only when the owner asked you to close or remove it",
@@ -151,7 +151,7 @@ class ToolsListTest(unittest.TestCase):
                 "the harness decides what it refuses",
                 "unpushed commits",
                 "jam never forces it",
-                "stopped but not removed",
+                "the session was stopped, but removing it failed",
             ],
             "whoami": [
                 "stale",

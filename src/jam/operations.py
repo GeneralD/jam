@@ -110,8 +110,8 @@ OPERATIONS: Final = (
         "stop",
         "stop a background session",
         "Stop a background session by its short `id` (not the long session id). Returns the row the "
-        "harness shows afterwards, or null if it is no longer listed (a stopped session stays in "
-        "`list` with include_exited true, and `close` also deletes it). Stop only sessions you started "
+        "harness shows afterwards, or null if it is no longer listed (on Claude Code a stopped "
+        "session stays in `list` with include_exited true, and `close` also deletes it; on the Devin CLI stopping already deletes it). Stop only sessions you started "
         "or the owner asked you to stop, never your own session (`whoami` tells you who you are).",
         (Param("id", "string", "The short session id, as `list` shows it.", required=True, positional=True),),
         _stop,
@@ -125,8 +125,8 @@ OPERATIONS: Final = (
         "you are); to end a session you started once nothing is left for it, `stop` it. Deleting is "
         "permanent, and the harness decides what it refuses, for instance a worktree with unpushed "
         "commits or uncommitted changes: jam never forces it, so on a refusal tell the owner what the "
-        "message says instead of working around it. If the failure says the session was stopped but "
-        "not removed, it is still listed as stopped.",
+        "message says instead of working around it. A failure that starts with \"the session was stopped, "
+        "but removing it failed\" means it may still be listed as stopped: check `list` with include_exited true.",
         (Param("id", "string", "The short session id, as `list` shows it.", required=True, positional=True),),
         _close,
     ),

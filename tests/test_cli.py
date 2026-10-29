@@ -146,7 +146,7 @@ class OtherCommandsTest(unittest.TestCase):
         refused = FakeHarness([session("aaaa1111")], remove_error=HarnessError("worktree has unpushed commits"))
         self.assertEqual(
             run_cli(["close", "aaaa1111"], runtime_for(refused)),
-            (1, "", "jam: worktree has unpushed commits (the session was stopped but not removed)\n"),
+            (1, "", "jam: the session was stopped, but removing it failed: worktree has unpushed commits\n"),
         )
 
     def test_whoami_prints_the_identity_from_the_injected_environment(self):

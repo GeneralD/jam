@@ -360,7 +360,14 @@ class CloseOperationTest(unittest.TestCase):
         harness = FakeHarness([session("aaaa1111")], remove_error=HarnessError("removing aaaa1111 failed (exit 1): unpushed commits"))
         outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness)
         self.assertFalse(outcome.ok)
-        self.assertEqual(outcome.text, "removing aaaa1111 failed (exit 1): unpushed commits (the session was stopped but not removed)")
+        self.assertEqual(outcome.text, "the session was stopped, but removing it failed: removing aaaa1111 failed (exit 1): unpushed commits")
+
+    def test_a_very_long_refusal_is_clipped_after_the_note_that_the_session_was_stopped(self):
+        harness = FakeHarness([session("aaaa1111")], remove_error=HarnessError("x" * 5000))
+        outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness)
+        self.assertFalse(outcome.ok)
+        self.assertTrue(outcome.text.startswith("the session was stopped, but removing it failed: x"))
+        self.assertLessEqual(len(outcome.text), 2000)
 
 
 class StopAndWhoamiTest(unittest.TestCase):

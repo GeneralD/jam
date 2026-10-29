@@ -256,9 +256,39 @@ class StopAndRemoveTest(unittest.TestCase):
         with self.assertRaises(StillListed):
             harness.remove("bbbb2222")
 
+    def test_a_refusal_reported_on_stdout_gives_its_reason_without_the_commands_that_override_it(self):
+        refusal = (
+            "kept bbbb2222 \u2014 its worktree is still at /work/wt\n"
+            "The worktree has 2 unpushed commits.\n"
+            "claude rm bbbb2222 --discard-unpushed abc1234@def5678\n"
+            "or delete the session from 'claude agents' (ctrl+x twice) to discard them\n"
+            "run claude rm bbbb2222 --force-remove-worktree def5678 to delete the directory\n"
+        )
+        harness, _ = self.harness(RunResult(1, refusal, ""))
+        with self.assertRaises(HarnessError) as caught:
+            harness.remove("bbbb2222")
+        text = str(caught.exception)
+        self.assertTrue(text.startswith("removing bbbb2222 failed (exit 1): kept bbbb2222"), text)
+        self.assertIn("The worktree has 2 unpushed commits.", text)
+        for override in ("--discard-unpushed", "--force-remove-worktree", "ctrl+x", "claude rm bbbb2222"):
+            with self.subTest(override=override):
+                self.assertNotIn(override, text)
+
+    def test_a_refusal_with_stderr_and_stdout_keeps_both_reasons(self):
+        harness, _ = self.harness(RunResult(1, "kept bbbb2222 \u2014 its worktree is still at /work/wt\n", "couldn't remove /work/wt"))
+        with self.assertRaisesRegex(HarnessError, r"couldn't remove /work/wt \| kept bbbb2222"):
+            harness.remove("bbbb2222")
+
+    def test_a_failure_whose_output_is_only_overrides_says_nothing_more_than_the_exit_status(self):
+        harness, _ = self.harness(RunResult(1, "claude rm bbbb2222 --discard-unpushed abc@def\n", ""))
+        with self.assertRaises(HarnessError) as caught:
+            harness.remove("bbbb2222")
+        self.assertEqual(str(caught.exception), "removing bbbb2222 failed (exit 1)")
+
     def test_session_ids_are_validated_before_anything_runs(self):
         harness, runner = self.harness()
-        for bad in ("", "-x", "a b", "a;b", "x" * 65):
+        # `claude stop` resolves a prefix of an id, so only the short id itself may reach it (a prefix would stop one session and look gone).
+        for bad in ("", "-x", "a b", "a;b", "x" * 65, "aaaa", "AAAA1111", "aaaa11112", "aaaa1111-0000-4000-8000-000000000001", "worker-a"):
             with self.subTest(bad=bad):
                 with self.assertRaises(InvalidRequest):
                     harness.stop(bad)

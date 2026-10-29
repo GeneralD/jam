@@ -1032,11 +1032,9 @@ a `remove` verb.
   `status`), a stop ends a run that is still going, and a second `claude stop`
   of a session that is stopped but still listed exits 0 (see "Verified"). A
   session that is no longer listed once it is stopped is not deleted a second
-  time: that is the Devin CLI, where stopping removes the row (D16). An id the
-  harness does not know fails at the stop, in the harness's words.
+  time: that is the Devin CLI, where stopping removes the row (D16). An id the harness does not know fails at the stop, in the harness's words. The Claude adapter passes on only the whole short id (eight hexadecimal characters, the form of the spawn output), because `claude stop` and `claude rm` match the start of an id: a prefix would stop one session, find no row with that exact id, and read as a session that stopping had deleted.
 - **Who may use it.** Only when the owner asked to close or remove the session.
-  `stop` stays the verb for a session a model started and has nothing left to
-  do for, and it keeps the conversation. That answers the question issue #32
+  `stop` stays the verb for a session a model started and has nothing left to do for, and on Claude Code it keeps the conversation. On the Devin CLI stopping already deletes the record (D16), so there the two end the same way and only the owner's say-so separates them; the `stop` description says so. That answers the question issue #32
   left to the owner, whether a model may delete the sessions it started: not on
   its own initiative. Nothing in code can tell who is asking (sessions are
   peers, D10), so, like the self-stop warning (D12), the tool description and
@@ -1044,10 +1042,7 @@ a `remove` verb.
 - **Refusals are never forced.** `claude rm` has two flags that override a
   refusal, `--discard-unpushed` for unpushed commits and uncommitted changes and
   `--force-remove-worktree` for a worktree that cannot be removed, and each takes
-  a value that a previous `claude rm` reported. jam passes neither. A refusal
-  comes back as the harness's own text followed by "(the session was stopped but
-  not removed)", because the session is then stopped and still listed. The
-  owner decides what to do with the worktree and asks again.
+  a value that a previous `claude rm` reported. jam passes neither. A failure of the removal comes back as the harness's own words behind "the session was stopped, but removing it failed: ". The note leads so that clipping a long message cannot drop it, and it claims only that the removal step failed, because a failed re-check after a successful `rm` reads the same; `list` says whether the session is still there. `claude rm` reports a refusal on stdout, not stderr, together with the commands that override it (read from the strings of the 2.1.309 binary; no live refusal was seen), so the adapter relays the reason lines and drops any line that names `--discard-unpushed`, `--force-remove-worktree`, `ctrl+x` or the `claude rm` command. The owner decides what to do with the worktree and asks again.
 - **The registry.** A closed session's note stays until the sweep removes it by
   age (D11). The listing only annotates rows that exist, so the note is never
   shown, and `close` leaves the registry alone, as `stop` does.
@@ -1067,11 +1062,9 @@ a `remove` verb.
   job matching '<id>'", and an id with a space failed as an invalid id before
   `claude` ran. A second `claude stop` of a stopped, still listed session
   printed `stopped <id>` and exited 0. The adapter's command sequence and the
-  refusal text are covered by unit tests against a scripted `claude`. A real
-  refusal, over unpushed commits or uncommitted changes, was not provoked here,
+  refusal text are covered by unit tests against a scripted `claude`. A real refusal, over unpushed commits or uncommitted changes, was not provoked here, so the stdout form of its text is unobserved,
   and `claude rm` on a running session without a stop was not tried: its help
-  says it also "works on already-exited sessions", so the stop stays first. The
-  Devin side is covered by unit tests only. Observed once and not explained: two
+  says it also "works on already-exited sessions", so the stop stays first. The Devin side is covered by unit tests only, through the real adapter over a scripted `devin` and a temporary store. Observed once and not explained: two
   workers that had finished a turn (`state: done`, `status: idle`, a live pid)
   were gone from `claude agents --all` within about half a minute, before any
   `stop` or `rm` was run on them, so a session can vanish between the listing

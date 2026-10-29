@@ -19,6 +19,8 @@ from jam.errors import (
 )
 from jam.harness.claude import RunResult
 from jam.harness.devin import DevinHarness
+from jam.registry import Registry
+from jam.service import Jam
 
 from test_claude_harness import FakeRunner, ok
 
@@ -243,6 +245,26 @@ class StopTest(Case):
             with self.subTest(session_id=session_id):
                 with self.assertRaises(InvalidRequest):
                     harness.stop(session_id)
+
+
+class CloseTest(Case):
+    """`close` through the real adapter: stopping already deletes a Devin record, so there is nothing left to remove."""
+
+    def jam(self, runner):
+        return Jam(DevinHarness(runner=runner, db_path=str(self.db)), Registry(self.dir / "data"))
+
+    def test_close_is_a_single_rm_when_stopping_leaves_no_record(self):
+        make_db(self.db, [])
+        runner = FakeRunner(ok())
+        self.jam(runner).close("alpha-fjord")
+        self.assertEqual([call[0] for call in runner.calls], [["devin", "rm", "alpha-fjord"]])
+
+    def test_a_record_that_survives_the_stop_is_removed_and_a_second_survival_is_reported(self):
+        make_db(self.db, [DB_ROWS[0]])
+        runner = FakeRunner(ok(), ok())
+        with self.assertRaisesRegex(HarnessError, "^the session was stopped, but removing it failed: session alpha-fjord is still listed after removal$"):
+            self.jam(runner).close("alpha-fjord")
+        self.assertEqual([call[0] for call in runner.calls], [["devin", "rm", "alpha-fjord"]] * 2)
 
 
 class RemoveTest(Case):

@@ -248,13 +248,13 @@ class CloseTest(ServiceTestCase):
             Jam(harness, StubRegistry()).close("aaaa1111")
         self.assertEqual(
             str(caught.exception),
-            "removing aaaa1111 failed (exit 1): the worktree has unpushed commits (the session was stopped but not removed)",
+            "the session was stopped, but removing it failed: removing aaaa1111 failed (exit 1): the worktree has unpushed commits",
         )
         self.assertIs(caught.exception.__cause__, refusal)
 
-    def test_a_session_that_stays_listed_after_removal_is_reported_as_not_removed(self):
+    def test_a_session_that_stays_listed_after_removal_is_reported_after_the_stop(self):
         harness = FakeHarness([session("aaaa1111")], remove_error=StillListed("aaaa1111"))
-        with self.assertRaisesRegex(HarnessError, r"still listed after removal \(the session was stopped but not removed\)"):
+        with self.assertRaisesRegex(HarnessError, r"^the session was stopped, but removing it failed: session aaaa1111 is still listed after removal$"):
             Jam(harness, StubRegistry()).close("aaaa1111")
 
 
@@ -291,7 +291,7 @@ class CloseOnClaudeTest(ServiceTestCase):
         with self.assertRaises(HarnessError) as caught:
             jam.close("aaaa1111")
         self.assertIn("refusing to remove: the worktree has 2 unpushed commits", str(caught.exception))
-        self.assertTrue(str(caught.exception).endswith("(the session was stopped but not removed)"))
+        self.assertTrue(str(caught.exception).startswith("the session was stopped, but removing it failed: "))
         self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"], ALL, ["claude", "rm", "aaaa1111"]])
 
     def test_an_unknown_id_is_the_harness_failure_and_nothing_else_runs(self):
@@ -300,6 +300,12 @@ class CloseOnClaudeTest(ServiceTestCase):
             jam.close("aaaa1111")
         self.assertNotIn("was stopped", str(caught.exception))
         self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"]])
+
+    def test_a_prefix_of_an_id_is_rejected_because_claude_would_resolve_it(self):
+        jam, runner = self.close()
+        with self.assertRaises(InvalidRequest):
+            jam.close("aaaa")
+        self.assertEqual(runner.calls, [])
 
     def test_an_invalid_id_is_rejected_before_anything_runs(self):
         for bad in ("", "-x", "a b", "a;b", "x" * 65):
