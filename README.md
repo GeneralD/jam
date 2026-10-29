@@ -106,6 +106,23 @@ devin plugins install GeneralD/jam
 
 Nothing else is set up by hand: no PATH change and no settings edit (D5).
 
+In one background session on Claude Code 2.1.309 (2026-10-28) that was already
+running when jam was installed at user scope, `/reload-plugins` reported four
+more hooks and one more plugin MCP server, and the `jam` tools became
+available, but no notice arrived and the plugin's data directory stayed empty.
+That fits `adopt`, the step that records the start directory, not having run;
+`prune`, the startup sweep, would leave nothing in an empty directory, so it is
+inferred not to have run either. What that session gets at a later restart,
+resume, clear or compact was not observed. For comparison, a print-mode
+`claude -p --resume <id>` of a session that had been created with jam disabled
+ran the SessionStart hooks with `source: resume`, notice included. The tool
+descriptions carry the instructions, and the notice is what gives the model the
+exact command line of the CLI, with the data directory flag, which matters only
+when the MCP server is not available. That is one observation: other Claude Code
+versions, a foreground session and the Devin CLI were not checked, and the
+points still open are under "Plugin platform facts" in
+[docs/decisions.md](docs/decisions.md).
+
 ## Status
 
 Early development. The plugin installs from this repository and carries the MCP
