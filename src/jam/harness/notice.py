@@ -23,12 +23,12 @@ MAX_ROOT: Final = 200  # the longest repository root a denial names
 _UNNAMEABLE: Final = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 _UNUSABLE_CHARACTER: Final = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff]")  # a control character, or a lone surrogate that has no UTF-8 form
 
-HEAD: Final = "jam lets this session start, list and stop agent sessions in other directories."
+HEAD: Final = "jam lets this session start, list, stop and close agent sessions in other directories."
 RUN: Final = "Run jam through Bash exactly as: "
 UNAVAILABLE: Final = "The jam command line is unavailable here; use the MCP tools."
-COMMANDS: Final = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | whoami"
+COMMANDS: Final = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | close ID | whoami"
 QUOTE: Final = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
-MCP: Final = "The same four operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __whoami."
+MCP: Final = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
 NO_NOTES: Final = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 DELEGATE: Final = (
     "A session started in another repository loads that repository's own CLAUDE.md, rules, skills and hooks, "

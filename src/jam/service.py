@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
-from .errors import RegistryError
+from .errors import HarnessError, RegistryError
 from .registry import Record, Registry, spawned_marked
 from .session import Session, Spawned
 
@@ -28,6 +28,8 @@ class Harness(Protocol):
     def list(self, include_exited: bool = False, cwd: str | None = None) -> list[Session]: ...
 
     def stop(self, session_id: str) -> Session | None: ...
+
+    def remove(self, session_id: str) -> None: ...
 
 
 class TicketWriter(Protocol):
@@ -113,6 +115,24 @@ class Jam:
     def stop(self, session_id: str) -> Session | None:
         # A stopped session stays in the full listing, so its note stays true.
         return self._harness.stop(session_id)
+
+    def close(self, session_id: str) -> None:
+        """Stop the session, then delete it unless stopping already did; the harness decides what a delete refuses.
+
+        The one place that deletes a session, and only on the owner's say-so
+        (the tool description and the skill carry that). jam never forces a
+        refusal. Stopping comes first for every session: it ends a run that is
+        still going, it is harmless on one that is stopped but still listed
+        (observed, D17), and on the Devin CLI it is the deletion itself, which
+        leaves no row to remove. A refusal comes back saying the session was
+        stopped, because it is then stopped and still listed.
+        """
+        if self._harness.stop(session_id) is None:
+            return
+        try:
+            self._harness.remove(session_id)
+        except HarnessError as exc:
+            raise HarnessError(f"{exc} (the session was stopped but not removed)") from exc
 
     def _issued(self, cwd: str | Path) -> tuple[str | None, Exception | None]:
         """The ticket written for `cwd` and None, or None and the error that kept it from being written. Never raises."""

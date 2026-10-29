@@ -118,8 +118,8 @@ class FailureMappingTest(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 self.assertNotIn(HINT, failure("spawn", error))
 
-    def test_the_hint_never_appears_for_list_stop_or_whoami(self):
-        for operation in ("list", "stop", "whoami"):
+    def test_the_hint_never_appears_for_list_stop_close_or_whoami(self):
+        for operation in ("list", "stop", "close", "whoami"):
             for error in (HarnessError("boom"), RegistryError("busy"), RuntimeError("x"), InvalidRequest("bad")):
                 with self.subTest(operation=operation, error=type(error).__name__):
                     self.assertNotIn(HINT, failure(operation, error))

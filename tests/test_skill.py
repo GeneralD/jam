@@ -109,7 +109,7 @@ class BodyTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, self.text)
 
-    def test_every_jam_tool_it_names_is_an_operation_and_it_names_all_four(self):
+    def test_every_jam_tool_it_names_is_an_operation_and_it_names_them_all(self):
         named = set(re.findall(r"mcp__plugin_jam_jam__(\w+)", self.body)) | set(re.findall(r"`__(\w+)`", self.body))
         known = {op.name for op in operations.OPERATIONS}
         self.assertLessEqual(named, known)
@@ -220,6 +220,17 @@ class BodyTest(unittest.TestCase):
 
     def test_it_stops_what_the_stop_contract_allows_and_no_less(self):
         self.assertIn("a session you started, or one the owner asked you to stop", self.text)
+
+    def test_it_closes_only_when_the_owner_asks_and_never_forces_a_refusal(self):
+        for phrase in (
+            "When the owner asks you to close or remove a session, use `close`",
+            "it stops the session and deletes it",
+            "A refusal (unpushed commits, uncommitted changes) goes back to the owner",
+            "jam never forces a delete, and you do not work around it",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.text)
+        self.assertNotIn("Removing a stopped session is up to the owner", self.text)
 
     def test_the_guard_text_it_quotes_is_the_one_the_guard_prints(self):
         notice = lazy("jam.harness.notice")

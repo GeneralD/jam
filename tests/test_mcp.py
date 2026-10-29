@@ -105,7 +105,7 @@ class MethodTest(unittest.TestCase):
 
     def test_there_is_no_lifecycle_state(self):
         runtime = runtime_for()
-        self.assertEqual([tool["name"] for tool in answer(request("tools/list"), runtime)["result"]["tools"]], ["spawn", "list", "stop", "whoami"])
+        self.assertEqual([tool["name"] for tool in answer(request("tools/list"), runtime)["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
         self.assertFalse(tool_result(answer(tool_call("whoami"), runtime))[0])
         self.assertEqual(answer(request("server/discover"), runtime)["error"]["code"], -32601)
         for _ in range(2):
@@ -143,7 +143,16 @@ class ToolsListTest(unittest.TestCase):
     def test_descriptions_carry_their_key_phrases(self):
         phrases = {
             "spawn": ["complete brief", "do not spawn again", "workspace not trusted", "from the main conversation only"],
-            "stop": ["never your own"],
+            "stop": ["never your own", "`close` also deletes it"],
+            "close": [
+                "stop it, then delete it",
+                "only when the owner asked you to close or remove it",
+                "never for your own session",
+                "the harness decides what it refuses",
+                "unpushed commits",
+                "jam never forces it",
+                "stopped but not removed",
+            ],
             "whoami": [
                 "stale",
                 "run through bash, always has the current `session_id`",
@@ -169,13 +178,15 @@ class ToolCallTest(unittest.TestCase):
         self.assertEqual(harness.list_calls, [(True, None)])
 
     def test_every_verb_reaches_the_core(self):
-        harness = FakeHarness()
+        harness = FakeHarness([session("aaaa1111")])
         runtime = runtime_for(harness)
         self.assertEqual(json.loads(tool_result(answer(tool_call("spawn", {"cwd": "/work/x", "prompt": "do it", "name": "worker-c"}), runtime))[1])["id"], "cccc3333")
         self.assertEqual(json.loads(tool_result(answer(tool_call("stop", {"id": "aaaa1111"}), runtime))[1])["id"], "aaaa1111")
+        self.assertEqual(json.loads(tool_result(answer(tool_call("close", {"id": "aaaa1111"}), runtime))[1]), {"id": "aaaa1111", "closed": True})
         self.assertEqual(json.loads(tool_result(answer(tool_call("whoami", {}), runtime))[1]), {"session_id": SESSION_ID, "id": "aaaa1111"})
         self.assertEqual(harness.spawn_calls, [("/work/x", "do it", "worker-c", None)])
-        self.assertEqual(harness.stop_calls, ["aaaa1111"])
+        self.assertEqual(harness.stop_calls, ["aaaa1111", "aaaa1111"])  # one for `stop`, one inside `close`
+        self.assertEqual(harness.remove_calls, ["aaaa1111"])
 
     def test_arguments_may_be_left_out(self):
         for name in ("list", "whoami"):
@@ -189,6 +200,7 @@ class ToolCallTest(unittest.TestCase):
             ("permission_mode", tool_call("spawn", {"cwd": "/work/x", "prompt": "p", "permission_mode": "default"}), runtime_for(), "unknown argument"),
             ("a missing key", tool_call("stop", {}), runtime_for(), "id"),
             ("a stop failure", tool_call("stop", {"id": "aaaa1111"}), runtime_for(FailingStopHarness()), "stop failed"),
+            ("a close whose stop fails", tool_call("close", {"id": "aaaa1111"}), runtime_for(FailingStopHarness()), "stop failed"),
             ("no identity", tool_call("whoami"), runtime_for(whoami=raising(HarnessError("not set"))), "not set"),
             ("a broken factory", tool_call("list"), mcp_runtime_with_broken_factory(), "internal error: RuntimeError"),
         ]

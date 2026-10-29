@@ -23,13 +23,13 @@ PLUGIN_FILES = Path(__file__).resolve().parent.parent
 
 # The notice is spelled out line by line on purpose: a test that built the
 # expectation from the module's own constants could not notice a changed word.
-HEAD = "jam lets this session start, list and stop agent sessions in other directories."
+HEAD = "jam lets this session start, list, stop and close agent sessions in other directories."
 RUN = f"Run jam through Bash exactly as: {PREFIX} COMMAND"
 RUN_WITHOUT_DATA = f"Run jam through Bash exactly as: {PLAIN} COMMAND"
 RUN_UNAVAILABLE = "The jam command line is unavailable here; use the MCP tools."
-COMMANDS = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | whoami"
+COMMANDS = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | close ID | whoami"
 QUOTE = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
-MCP ="The same four operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __whoami."
+MCP = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
 NO_NOTES = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 SESSION_LINE = f"This session id: {SESSION_ID}"
 DELEGATE = (

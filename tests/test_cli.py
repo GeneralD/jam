@@ -137,6 +137,18 @@ class OtherCommandsTest(unittest.TestCase):
         code, out, err = run_cli(["stop", "aaaa1111"], runtime_for(FailingStopHarness()))
         self.assertEqual((code, out, err), (1, "", "jam: stop failed\n"))
 
+    def test_close_prints_the_result_and_a_refusal_is_a_failure(self):
+        harness = FakeHarness([session("aaaa1111")])
+        code, out, err = run_cli(["close", "aaaa1111"], runtime_for(harness))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out), {"id": "aaaa1111", "closed": True})
+        self.assertEqual((harness.stop_calls, harness.remove_calls), (["aaaa1111"], ["aaaa1111"]))
+        refused = FakeHarness([session("aaaa1111")], remove_error=HarnessError("worktree has unpushed commits"))
+        self.assertEqual(
+            run_cli(["close", "aaaa1111"], runtime_for(refused)),
+            (1, "", "jam: worktree has unpushed commits (the session was stopped but not removed)\n"),
+        )
+
     def test_whoami_prints_the_identity_from_the_injected_environment(self):
         env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/aaaa1111", TOKEN_VAR: TOKEN}
         out, err = io.StringIO(), io.StringIO()
@@ -168,6 +180,7 @@ class ParityTest(unittest.TestCase):
             (["list", "--include-exited"], "list", {"include_exited": True}),
             (["list", "--cwd", "/work/x"], "list", {"cwd": "/work/x"}),
             (["stop", "aaaa1111"], "stop", {"id": "aaaa1111"}),
+            (["close", "aaaa1111"], "close", {"id": "aaaa1111"}),
             (["whoami"], "whoami", {}),
         ]
         for argv, name, arguments in cases:
@@ -189,10 +202,12 @@ class UsageTest(unittest.TestCase):
         ["list", "--data-dir", "/d"],
         ["--data", "/d", "list"],
         ["stop"],
+        ["close"],
+        ["close", "aaaa1111", "--force"],
         ["whoami", "extra"],
         ["spawn", "--cwd", "/work/x", "--", "an", "unquoted", "brief"],
     ]
-    COMMANDS = ("spawn", "list", "stop", "whoami")
+    COMMANDS = ("spawn", "list", "stop", "close", "whoami")
 
     def test_usage_errors_return_two_with_usage_on_stderr_and_nothing_on_stdout(self):
         for argv in self.BAD:
@@ -225,7 +240,7 @@ class UsageTest(unittest.TestCase):
     def test_help_exits_zero_on_the_injected_stdout(self):
         code, out, err = run_cli(["--help"])
         self.assertEqual((code, err), (0, ""))
-        for command in ("spawn", "list", "stop", "whoami"):
+        for command in ("spawn", "list", "stop", "close", "whoami"):
             self.assertIn(command, out)
 
     def test_mcp_is_not_advertised_in_the_command_list(self):
@@ -233,7 +248,7 @@ class UsageTest(unittest.TestCase):
         self.assertIsNone(re.search(r"\bmcp\b", out), out)
 
     def test_the_help_spells_arguments_as_the_flags_this_parser_accepts(self):
-        for command in ("list", "stop"):
+        for command in ("list", "stop", "close"):
             with self.subTest(command=command):
                 _, out, _ = run_cli([command, "--help"])
                 self.assertNotIn("include_exited", out)
@@ -301,7 +316,7 @@ class McpCommandTest(unittest.TestCase):
         self.assertEqual(first["result"]["serverInfo"]["name"], "jam")
         manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(first["result"]["serverInfo"]["version"], manifest["version"])
-        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["spawn", "list", "stop", "whoami"])
+        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
 
     def test_a_tool_call_over_the_mcp_command_reaches_the_runtime(self):
         message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list", "arguments": {}}}

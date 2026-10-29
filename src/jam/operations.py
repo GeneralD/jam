@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Final, Optional
 
 from .errors import InvalidRequest
-from .reporting import Stopped, failure_text, rendered
+from .reporting import Closed, Stopped, failure_text, rendered
 from .service import Jam
 from .session import Identity
 
@@ -63,6 +63,11 @@ def _stop(runtime: Runtime, args: Mapping[str, Any]) -> object:
     return Stopped(args["id"], runtime.jam().stop(args["id"]))
 
 
+def _close(runtime: Runtime, args: Mapping[str, Any]) -> object:
+    runtime.jam().close(args["id"])
+    return Closed(args["id"])
+
+
 def _whoami(runtime: Runtime, args: Mapping[str, Any]) -> object:
     return runtime.whoami()
 
@@ -106,10 +111,24 @@ OPERATIONS: Final = (
         "stop a background session",
         "Stop a background session by its short `id` (not the long session id). Returns the row the "
         "harness shows afterwards, or null if it is no longer listed (a stopped session stays in "
-        "`list` with include_exited true). Stop only sessions you started or the owner asked you to "
-        "stop, never your own session (`whoami` tells you who you are).",
+        "`list` with include_exited true, and `close` also deletes it). Stop only sessions you started "
+        "or the owner asked you to stop, never your own session (`whoami` tells you who you are).",
         (Param("id", "string", "The short session id, as `list` shows it.", required=True, positional=True),),
         _stop,
+    ),
+    Operation(
+        "close",
+        "stop a background session and delete it",
+        "Close a background session by its short `id`: stop it, then delete it, so it leaves `list` "
+        "even with include_exited true. Use it only when the owner asked you to close or "
+        "remove it, never on your own initiative and never for your own session (`whoami` tells you who "
+        "you are); to end a session you started once nothing is left for it, `stop` it. Deleting is "
+        "permanent, and the harness decides what it refuses, for instance a worktree with unpushed "
+        "commits or uncommitted changes: jam never forces it, so on a refusal tell the owner what the "
+        "message says instead of working around it. If the failure says the session was stopped but "
+        "not removed, it is still listed as stopped.",
+        (Param("id", "string", "The short session id, as `list` shows it.", required=True, positional=True),),
+        _close,
     ),
     Operation(
         "whoami",

@@ -96,15 +96,20 @@ REJECTED = [
     ("list", {"cwd": 5}, "cwd"),
     ("stop", {}, "id"),
     ("stop", {"id": 5}, "id"),
+    ("close", {}, "id"),
+    ("close", {"id": 5}, "id"),
     ("whoami", {"anything": 1}, "anything"),
     # An unknown key is unknown whatever it holds: a null must not slip past the closed schema.
     ("spawn", {"cwd": "/work/x", "prompt": "p", "bogus": None}, "bogus"),
     ("spawn", {"cwd": "/work/x", "prompt": "p", "permission_mode": None}, "permission_mode"),
     ("list", {"bogus": None}, "bogus"),
     ("stop", {"id": "aaaa1111", "bogus": None}, "bogus"),
+    ("close", {"id": "aaaa1111", "bogus": None}, "bogus"),
+    ("close", {"id": "aaaa1111", "force": True}, "force"),
     ("whoami", {"anything": None}, "anything"),
     # A null stands in only for an optional parameter, never for a required one.
     ("stop", {"id": None}, "id"),
+    ("close", {"id": None}, "id"),
     ("spawn", {"cwd": None, "prompt": "p"}, "cwd"),
     # An unpaired surrogate (a JSON "\ud800" escape) cannot be passed to a subprocess.
     ("spawn", {"cwd": "/work/x", "prompt": "hi \ud800"}, "prompt"),
@@ -112,12 +117,13 @@ REJECTED = [
     ("spawn", {"cwd": "/work/x", "prompt": "p", "name": "\ud800"}, "name"),
     ("list", {"cwd": "/work/\ud800"}, "cwd"),
     ("stop", {"id": "\ud800"}, "id"),
+    ("close", {"id": "\ud800"}, "id"),
 ]
 
 
 class RegistryPinTest(unittest.TestCase):
-    def test_the_table_names_exactly_the_four_verbs(self):
-        self.assertEqual([op.name for op in operations.OPERATIONS], ["spawn", "list", "stop", "whoami"])
+    def test_the_table_names_exactly_the_verbs(self):
+        self.assertEqual([op.name for op in operations.OPERATIONS], ["spawn", "list", "stop", "close", "whoami"])
 
     def test_lookup_returns_the_table_entry(self):
         for op in operations.OPERATIONS:
@@ -129,6 +135,7 @@ class RegistryPinTest(unittest.TestCase):
             "spawn": ({"cwd", "prompt", "name"}, {"cwd", "prompt"}),
             "list": ({"include_exited", "cwd"}, set()),
             "stop": ({"id"}, {"id"}),
+            "close": ({"id"}, {"id"}),
             "whoami": (set(), set()),
         }
         for op in operations.OPERATIONS:
@@ -163,6 +170,7 @@ class ValidatedTest(unittest.TestCase):
         self.assertEqual(dict(self.validated("list", {"include_exited": True, "cwd": "/work/x"})), {"include_exited": True, "cwd": "/work/x"})
         self.assertEqual(dict(self.validated("list", {"include_exited": False})), {"include_exited": False})
         self.assertEqual(dict(self.validated("stop", {"id": "aaaa1111"})), {"id": "aaaa1111"})
+        self.assertEqual(dict(self.validated("close", {"id": "aaaa1111"})), {"id": "aaaa1111"})
         self.assertEqual(dict(self.validated("whoami", {})), {})
 
     def test_null_optionals_are_dropped(self):
@@ -271,14 +279,14 @@ class SpawnOperationTest(unittest.TestCase):
 
 class RejectedArgumentsTest(unittest.TestCase):
     def test_nothing_reaches_the_harness_or_the_registry(self):
-        for name, arguments, fragment in REJECTED + [("spawn", [], ""), ("list", "x", ""), ("stop", 3, "")]:
+        for name, arguments, fragment in REJECTED + [("spawn", [], ""), ("list", "x", ""), ("stop", 3, ""), ("close", 3, "")]:
             with self.subTest(name=name, arguments=arguments):
                 harness, stub = FakeHarness(), StubRegistry()
                 outcome = run_operation(name, arguments, harness=harness, registry=stub)
                 self.assertFalse(outcome.ok)
                 self.assertIn(fragment, outcome.text)
                 self.assertNotIn(HINT, outcome.text)
-                self.assertEqual((harness.spawn_calls, harness.list_calls, harness.stop_calls), ([], [], []))
+                self.assertEqual((harness.spawn_calls, harness.list_calls, harness.stop_calls, harness.remove_calls), ([], [], [], []))
                 self.assertEqual((stub.updates, stub.records), ([], []))
 
 
@@ -327,6 +335,34 @@ class ListOperationTest(unittest.TestCase):
         self.assertEqual(outcome.text, "down")
 
 
+class CloseOperationTest(unittest.TestCase):
+    def test_close_reports_the_id_and_never_touches_the_registry(self):
+        harness, stub = FakeHarness([session("aaaa1111")]), StubRegistry()
+        outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness, registry=stub)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(payload(outcome), {"id": "aaaa1111", "closed": True})
+        self.assertEqual((harness.stop_calls, harness.remove_calls), (["aaaa1111"], ["aaaa1111"]))
+        self.assertEqual((stub.updates, stub.records, stub.removes), ([], [], []))
+
+    def test_a_session_that_stopping_already_deleted_is_closed_without_a_removal(self):
+        harness = VanishingHarness()
+        outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness)
+        self.assertEqual(payload(outcome), {"id": "aaaa1111", "closed": True})
+        self.assertEqual((harness.stop_calls, harness.remove_calls), (["aaaa1111"], []))
+
+    def test_a_failed_stop_is_a_failure_and_nothing_is_removed(self):
+        harness = FailingStopHarness()
+        outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness)
+        self.assertEqual((outcome.ok, outcome.text), (False, "stop failed"))
+        self.assertEqual(harness.remove_calls, [])
+
+    def test_a_refusal_is_a_failure_that_keeps_the_harness_text_and_says_what_was_done(self):
+        harness = FakeHarness([session("aaaa1111")], remove_error=HarnessError("removing aaaa1111 failed (exit 1): unpushed commits"))
+        outcome = run_operation("close", {"id": "aaaa1111"}, harness=harness)
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.text, "removing aaaa1111 failed (exit 1): unpushed commits (the session was stopped but not removed)")
+
+
 class StopAndWhoamiTest(unittest.TestCase):
     def test_stop_returns_the_row_and_never_touches_the_registry(self):
         harness, stub = FakeHarness(), StubRegistry()
@@ -357,7 +393,7 @@ class StopAndWhoamiTest(unittest.TestCase):
     def test_whoami_needs_no_jam_and_the_others_survive_a_broken_factory(self):
         runtime = operations.Runtime(raising(RuntimeError("/private/path")), identity)
         self.assertTrue(operations.call(runtime, operations.lookup("whoami"), {}).ok)
-        for name, arguments in (("spawn", {"cwd": "/work/x", "prompt": "p"}), ("list", {}), ("stop", {"id": "aaaa1111"})):
+        for name, arguments in (("spawn", {"cwd": "/work/x", "prompt": "p"}), ("list", {}), ("stop", {"id": "aaaa1111"}), ("close", {"id": "aaaa1111"})):
             with self.subTest(name=name):
                 outcome = operations.call(runtime, operations.lookup(name), arguments)
                 self.assertFalse(outcome.ok)
@@ -376,6 +412,8 @@ class HintScopeTest(unittest.TestCase):
         failures = [
             run_operation("list", {}, harness=FakeHarness(list_error=timeout)),
             run_operation("stop", {"id": "aaaa1111"}, harness=FailingStopHarness()),
+            run_operation("close", {"id": "aaaa1111"}, harness=FakeHarness(remove_error=HarnessError("refused"))),
+            run_operation("close", {"id": "aaaa1111"}, harness=FailingStopHarness()),
             run_operation("whoami", {}, whoami=raising(HarnessError("not set"))),
         ]
         for outcome in failures:
