@@ -97,10 +97,12 @@ scope.
 
 The repository is its own marketplace. The MCP server, hooks, and skill ship in
 one plugin. The AI is told the CLI's absolute path by a SessionStart hook
-(`additionalContext`, D13), so no PATH change is needed. The MCP server and the
-CLI are thin entry points over the same core; their shape is D12. The registry
-lives in the plugin data directory and is disposable (see "Plugin platform
-facts"). Its shape is D11.
+(`additionalContext`, D13), so no PATH change is needed. In the one session
+checked, `/reload-plugins` did not bring the notice to a session that was
+already running when the plugin was installed (see "Plugin platform facts"). The
+MCP server and the CLI are thin entry points over the same core; their shape is
+D12. The registry lives in the plugin data directory and is disposable (see
+"Plugin platform facts"). Its shape is D11.
 
 ## D6. Automatic delegation guard
 
@@ -353,9 +355,11 @@ pass).
 - **Deferred.** Self-stop refusal in code (the short id is not reliably known
   over MCP, so the `stop` description warns instead), a `remove` or `prune`
   verb, and the MCP extras (server instructions, pagination, structured output,
-  cancellation). The SessionStart wiring and the notice text that were deferred
-  here are D13, the foreign-repo guard (D6), deferred here as well, is D14, and
-  the skill is D15.
+  cancellation). Server instructions are the extra that could reach a session
+  that only reloaded the plugin, if Claude Code injects them at reload; that was
+  not checked (#24). The SessionStart wiring and the notice text that were
+  deferred here are D13, the foreign-repo guard (D6), deferred here as well, is
+  D14, and the skill is D15.
 
 - **Interrupts and a vanished reader.** An interrupt ends the command with exit
   130 (the shell's status for SIGINT) and nothing on stderr, because a traceback
@@ -428,6 +432,13 @@ through the same launcher, with `|| exit 0` appended; it is D14.
   extra deny per repository. A ticket counts only when it was written at most
   300 seconds before the start (a ticket dated in the future counts as fresh),
   so a worker whose first session start comes later gets no mark.
+- **A reload did not run the SessionStart hooks (observed once, #24).** On
+  2.1.309 (2026-10-28), `/reload-plugins` in one running background session
+  reported four more hooks, and no notice arrived and no start record was
+  written there, which fits the notice and `adopt` not having run; that `prune`
+  did not run is inferred, since it leaves nothing in an empty directory. What a
+  `clear` or a `compact` does in a reloaded session was not tried. See
+  "`/reload-plugins` in a running session" under "Plugin platform facts".
 - **Synchronous, with explicit bounds, and no `async`.** A command hook's
   default timeout is 600 seconds, so each entry sets its own: 5 seconds for
   `notice` and `adopt`, and 3 for `prune`. Inside the process an alarm (3
@@ -919,7 +930,9 @@ between peers).
 - **Rejected.** One skill per role, spawner and worker: the same session can be
   both (D10), and each skill adds a listing entry to every turn. The guidance
   in the notice instead: the notice is injected at every session start and
-  after every compaction, while a skill body loads only when it is used.
+  after every compaction (though not by `/reload-plugins` in the one session
+  checked; see "Plugin platform facts"), while a skill body loads only when it
+  is used.
 - **Owner questions.** Answered on 2026-10-23: D15-1, the owner asked for a
   shorter text without the redundant parts, so the skill now leaves to the tool
   descriptions what they say alone; D15-2, yes: the deny reason now says to call
@@ -1102,6 +1115,35 @@ checked against the release notes for
   flag was added to the shell command in 2.1.292; the command itself is older).
   Auto-update is off by default for third-party marketplaces. There is no
   install-time hook, so initialization happens lazily on first use.
+- **`/reload-plugins` in a running session (observed once on 2.1.309,
+  2026-10-28).** jam was installed at user scope with `/plugin install` while a
+  background session was already running, and `/reload-plugins` was run in that
+  session. The reload reported one more plugin, four more hooks and one more
+  plugin MCP server, and the jam tools became available there. No SessionStart
+  notice arrived in that session, and the plugin's data directory stayed empty
+  afterwards. Two things were observed: no notice, and an empty data directory.
+  `adopt` writes the start record into that directory (D14), so the empty
+  directory fits `adopt` not having run. `prune` would leave nothing in an empty
+  directory, so that it did not run is inferred from the missing notice and the
+  missing record. So in that session the reload reported the hooks and made the
+  MCP tools available, and the SessionStart hooks appear not to have run,
+  although a session start runs them (D13). For comparison, a print-mode
+  `claude -p --resume <id>` of a session that had been created with jam disabled
+  loaded the plugin, connected the MCP server and ran the SessionStart hooks
+  with `source: resume`, notice included. What the gap costs in that session:
+  the tool descriptions carry the instructions for using the tools; no worker
+  mark is involved (a mark is taken at a fresh start, D13); the guard reads
+  `CLAUDE_PROJECT_DIR` first and the start record only when that is not
+  absolute, so a missing record matters only then, and the guard then allows
+  (D14, step 5), and whether the guard ran in the reloaded session was not
+  checked; the notice is what gives the model the exact command line of the CLI,
+  with the data directory flag, which matters only when the MCP server is not
+  available. Not checked: other Claude Code versions; a foreground session; the
+  hooks of a second running session, which was seen to start a jam MCP server
+  after its own reload; whether a `clear` or a `compact` in a reloaded session
+  runs the hooks; the Devin CLI; and whether a reload re-injects the MCP server
+  `instructions`, which D12 defers and which would reach a reloaded session if
+  it did (#24).
 - **Background sessions (verified by experiment).** The documentation is
   silent, so a throwaway probe plugin was loaded with `--plugin-dir` into both a
   print-mode run (control) and a `claude --bg` session. In both, the plugin's
@@ -1355,5 +1397,9 @@ among them the skip of `resume` and `fork` by `adopt` (D14), the notice being
 used by a model that is not told to rely on it (D13), a foreground session in a
 permission mode other than `auto`, in a plain terminal or in a zellij pane
 ("Cross-session messages and permission modes" under "Plugin platform facts"),
-and a resume under a different configuration directory ("Resuming a background
+a resume under a different configuration directory ("Resuming a background
+session" under "Plugin platform facts"), and what `/reload-plugins` gives a
+running session beyond the one background session on 2.1.309 that was checked:
+other versions, a foreground session, a second session's hooks, and whether a
+reload re-injects the MCP server `instructions` ("`/reload-plugins` in a running
 session" under "Plugin platform facts").
