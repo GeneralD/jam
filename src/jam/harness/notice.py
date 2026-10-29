@@ -2,7 +2,7 @@
 
 Pure: no file access, no environment, and the same bytes for the same inputs, so
 the re-injection after a resume, a clear or a compaction is harmless. It lives in
-the harness package because it names Claude Code (tool names, CLAUDE.md), but it
+the harness package because it names platform specifics (tool names, CLAUDE.md), but it
 imports nothing of jam except the session id check.
 """
 
@@ -23,7 +23,7 @@ MAX_ROOT: Final = 200  # the longest repository root a denial names
 _UNNAMEABLE: Final = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 _UNUSABLE_CHARACTER: Final = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff]")  # a control character, or a lone surrogate that has no UTF-8 form
 
-HEAD: Final = "jam lets this session start, list and stop background Claude Code sessions in other directories."
+HEAD: Final = "jam lets this session start, list and stop agent sessions in other directories."
 RUN: Final = "Run jam through Bash exactly as: "
 UNAVAILABLE: Final = "The jam command line is unavailable here; use the MCP tools."
 COMMANDS: Final = "Commands: spawn --cwd ABS_DIR [--name NAME] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | whoami"

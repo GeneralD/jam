@@ -43,7 +43,7 @@ class EditTargetTest(unittest.TestCase):
                 self.assertIsNone(hooks.edit_target(call("Write", {"file_path": value})))
 
     def test_what_is_not_an_editing_tool_call_is_none(self):
-        for payload in ({}, call("Bash", {"file_path": "/work/x"}), call("write", {"file_path": "/work/x"}), call("Write", None), call("Write", [], cwd=None), {"tool_input": {"file_path": "/work/x"}}):
+        for payload in ({}, call("Bash", {"file_path": "/work/x"}), call("exec", {"file_path": "/work/x"}), call("Write", None), call("Write", [], cwd=None), {"tool_input": {"file_path": "/work/x"}}):
             with self.subTest(payload=payload):
                 self.assertIsNone(hooks.edit_target(payload))
 
@@ -69,8 +69,14 @@ class TargetTest(GuardCase):
         self.assertSilent(self.guarded({"notebook_path": inside, "file_path": self.target}, tool="NotebookEdit"))
         self.assertDenied(self.guarded({"notebook_path": self.target, "file_path": inside}, tool="NotebookEdit"), self.other)
 
+    def test_the_devin_edit_tools_are_read_through_their_file_fields(self):
+        self.assertDenied(self.guarded({"file_path": self.target}, tool="edit", session_id=self.fresh()), self.other)
+        self.assertDenied(self.guarded({"file_path": self.target}, tool="write", session_id=self.fresh()), self.other)
+        self.assertDenied(self.guarded({"file_path": self.target}, tool="apply_patch", session_id=self.fresh()), self.other)
+        self.assertDenied(self.guarded({"notebook_path": self.target}, tool="notebook_edit", session_id=self.fresh()), self.other)
+
     def test_a_tool_that_does_not_edit_a_file_is_ignored_whatever_it_carries(self):
-        for tool in ("Bash", "Read", "Glob", "write", "", None, 5, ["Write"], {"a": 1}):
+        for tool in ("Bash", "Read", "Glob", "exec", "", None, 5, ["Write"], {"a": 1}):
             with self.subTest(tool=tool):
                 self.assertSilent(self.guarded({"file_path": self.target, "command": "touch x"}, tool=tool))
 

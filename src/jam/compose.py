@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Any, Final, Optional
 
 from .errors import InvalidRequest, RegistryError
-from .harness import claude_env
+from .harness import claude_env, devin_env
 from .harness.claude import ClaudeHarness, Runner
+from .harness.devin import DevinHarness
 from .operations import Runtime
 from .registry import Registry
 from .service import Jam
@@ -53,12 +54,26 @@ def registry_for(directory: Optional[str]) -> Any:
         return UnavailableRegistry(str(exc))
 
 
+def _harness_parts(env: Mapping[str, str]) -> tuple:
+    """The environment module and adapter for the harness this session runs on.
+
+    Claude markers win when both sets are present: a Devin session's variables
+    are inherited by every process it spawns (a Claude session among them),
+    while Claude's per-session variables only exist inside Claude itself.
+    """
+    for env_module, harness_type in ((claude_env, ClaudeHarness), (devin_env, DevinHarness)):
+        if env_module.detect(env):
+            return env_module, harness_type
+    return claude_env, ClaudeHarness
+
+
 def build_runtime(data_dir_flag: Optional[str], env: Mapping[str, str], runner: Optional[Runner] = None) -> Runtime:
     """A Runtime over the real adapter. `runner` is the seam that keeps tests from starting sessions."""
-    directory = claude_env.data_dir(data_dir_flag, env)
+    env_module, harness_type = _harness_parts(env)
+    directory = env_module.data_dir(data_dir_flag, env)
     return Runtime(
-        lambda: Jam(ClaudeHarness(runner=runner), registry_for(directory), Tickets(directory)),
-        lambda: claude_env.identity(env),
+        lambda: Jam(harness_type(runner=runner), registry_for(directory), Tickets(directory)),
+        lambda: env_module.identity(env),
     )
 
 

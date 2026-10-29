@@ -13,8 +13,9 @@ repos instead of switching contexts by hand.
 
 - **Spawn** a background session in any directory.
 - **List** live sessions with their IDs, working directories, and state.
-- **Send** a prompt to a session and **receive** its result back, using Claude Code's
-  native `SendMessage`.
+- **Send** a prompt to a session and **receive** its result back, using the
+  harness's own primitive: Claude Code's `SendMessage`, or `devin -r` on the
+  Devin CLI.
 - Treat every session as a **peer**: a spawned session still takes instructions
   from the owner as usual and may message the sessions that started it.
 - **Guard** against editing another repository directly: the first such edit in
@@ -38,7 +39,7 @@ agents and terminal environments can be added later without touching the core.
 core            session registry, verbs: spawn / list / stop / whoami
  ├ harness      how a session is started, listed, stopped, and read
  └ environment  seam for terminal-specific delivery (no adapter in v1)
-messaging       Claude Code's native SendMessage, taught to the AI by a skill
+messaging       the harness's own primitive (SendMessage / devin -r), taught by a skill
 entry points    MCP server (plugin.json) and CLI (scripts/jam), one operations table
 ```
 
@@ -63,17 +64,22 @@ other than the one the session started in, with a reason that points to
 delegation; D14 lists the exceptions, among them a session with a worker mark.
 For any other edit it prints nothing, so the normal permission flow decides.
 
-The first release targets **Claude Code** sessions that are registered with its
-background session stack, so they show up in `claude agents` with an `id`. A
-foreground session shows up there without one, so jam does not list or stop it,
-although a worker's message woke one in the one check made (D2). It does not
-depend on a terminal multiplexer. Other harnesses and terminals are out of
+Two harnesses are supported (D16). **Claude Code** sessions are the ones
+registered with its background session stack, so they show up in `claude
+agents` with an `id`. A foreground session shows up there without one, so jam
+does not list or stop it, although a worker's message woke one in the one check
+made (D2). **Devin CLI** sessions are the rows `devin -p` leaves in its session
+store: `spawn` launches a detached `devin -p`, `stop` ends the recorded process
+and removes the record, and messages go through `devin -r <id> -p`, a
+synchronous resume-and-answer. There is no session id in a Devin session's own
+environment, so `whoami` reports an error there instead of guessing. It does
+not depend on a terminal multiplexer. Other harnesses and terminals are out of
 scope for now; the adapter seams are there so they can be added when needed.
 
 ## Requirements
 
-- Claude Code.
-- `python3`, version 3.9 or newer, on the PATH of the Claude Code process. The
+- Claude Code, or the Devin CLI.
+- `python3`, version 3.9 or newer, on the PATH of the harness process. The
   MCP server, the CLI and the hooks all start with it. On macOS without the
   developer tools, `python3` is a stub that prompts to install them.
 
@@ -90,6 +96,12 @@ On an older version, add the marketplace first, then install from it:
 ```text
 /plugin marketplace add GeneralD/jam
 /plugin install jam@jam
+```
+
+In a Devin CLI session:
+
+```text
+devin plugins install GeneralD/jam
 ```
 
 Nothing else is set up by hand: no PATH change and no settings edit (D5).

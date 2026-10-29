@@ -22,6 +22,14 @@ JOB_DIR_VAR: Final = "CLAUDE_JOB_DIR"
 PROJECT_DIR_VAR: Final = "CLAUDE_PROJECT_DIR"
 CONFIG_DIR_VAR: Final = "CLAUDE_CONFIG_DIR"
 HOME_VAR: Final = "HOME"
+# The variables only a real Claude session or hook process sets; used to tell
+# this harness apart when another harness's variables are also inherited.
+MARKERS: Final = (SESSION_ID_VAR, JOB_DIR_VAR, DATA_DIR_VAR, PROJECT_DIR_VAR, CONFIG_DIR_VAR)
+
+
+def detect(env: Mapping[str, str]) -> bool:
+    """True when the environment belongs to a Claude session or hook process."""
+    return any(env.get(var) for var in MARKERS)
 
 
 def data_dir(flag: Optional[str], env: Mapping[str, str]) -> Optional[str]:

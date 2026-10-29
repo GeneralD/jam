@@ -224,13 +224,16 @@ class FailOpenTest(GuardCase):
             result = self.guarded()
         self.assertEqual((result.code, result.out, result.err, result.alarms), (0, "", "RuntimeError\n", ALARMS))
 
-    def test_only_the_four_documented_variables_are_ever_read(self):
+    def test_only_the_documented_variables_are_ever_read(self):
         # The config variable is left unset so that the home directory, its fallback, is read too.
         environment = {DATA_VAR: str(self.data), PROJECT_VAR: str(self.app), HOME_VAR: str(self.root / "home"), "CLAUDE_CODE_SESSION_ACCESS_TOKEN": "planted-token"}
         env = RecordingEnv(environment)
         result = run("guard", stdin=edit_payload("Write", {"file_path": self.target}), env=env)
         self.assertDenied(result, self.other)
-        self.assertEqual(set(env.reads), {DATA_VAR, PROJECT_VAR, CONFIG_VAR, HOME_VAR})
+        # The resolvers' variables plus each harness's detection markers; the credential is not among them.
+        known = {DATA_VAR, PROJECT_VAR, CONFIG_VAR, HOME_VAR, "CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "PLUGIN_DATA", "DEVIN_PROJECT_DIR", "AI_AGENT"}
+        self.assertTrue(set(env.reads) <= known, env.reads)
+        self.assertNotIn("CLAUDE_CODE_SESSION_ACCESS_TOKEN", env.reads)
 
 
 class ReasonTest(GuardCase):

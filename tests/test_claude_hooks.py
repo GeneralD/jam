@@ -207,15 +207,30 @@ class NoticeHandlerTest(unittest.TestCase):
 
 
 class EnvironmentReadsTest(unittest.TestCase):
-    """One of the CLAUDE_* session variables is a credential; a hook reads the data dir variable and nothing else."""
+    """One of the CLAUDE_* session variables is a credential; a hook reads only the variables the env modules name, never the token."""
 
-    def test_each_hook_reads_only_the_data_dir_variable(self):
+    # The variables harness detection and the resolvers may read: the data dir
+    # variable plus each harness's marker set. The credential is not among them.
+    KNOWN_VARS = {
+        DATA_VAR,
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_JOB_DIR",
+        "CLAUDE_PROJECT_DIR",
+        "CLAUDE_CONFIG_DIR",
+        "PLUGIN_DATA",
+        "DEVIN_PROJECT_DIR",
+        "AI_AGENT",
+        "HOME",
+    }
+
+    def test_each_hook_reads_only_the_known_variables(self):
         for name in ("notice", "prune", "adopt"):
             with self.subTest(hook=name), tempfile.TemporaryDirectory() as scratch:
                 env = RecordingEnv({DATA_VAR: os.path.join(scratch, "data"), "CLAUDE_CODE_SESSION_ACCESS_TOKEN": "planted-token", "CLAUDE_CODE_SESSION_ID": SESSION_ID, "CLAUDE_PLUGIN_ROOT": "/elsewhere"})
                 result = run(name, env=env)
                 self.assertEqual((result.code, result.err), (0, ""))
-                self.assertEqual(set(env.reads), {DATA_VAR})
+                self.assertTrue(set(env.reads) <= self.KNOWN_VARS, env.reads)
+                self.assertNotIn("CLAUDE_CODE_SESSION_ACCESS_TOKEN", env.reads)
 
 
 class PruneHandlerTest(unittest.TestCase):

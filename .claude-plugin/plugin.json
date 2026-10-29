@@ -3,7 +3,7 @@
   "name": "jam",
   "version": "0.1.0",
   "displayName": "jam",
-  "description": "Junction for AI Messaging: let Claude Code sessions in different repositories spawn each other, find each other, and pass prompts and results.",
+  "description": "Junction for AI Messaging: let agent sessions in different repositories spawn each other, find each other, and pass prompts and results.",
   "author": {
     "name": "GeneralD",
     "url": "https://github.com/GeneralD"

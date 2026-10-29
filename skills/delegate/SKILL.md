@@ -1,15 +1,17 @@
 ---
 name: delegate
-description: Delegate work in another repository to a background Claude Code session started there with jam, and exchange messages with it. Use when a task needs changes or checks in a repository other than this session's, when jam denied an edit in another repository, or when this session was started by another session and owes it a report.
+description: Delegate work in another repository to a session started there with jam (Claude Code or Devin CLI), and exchange messages with it. Use when a task needs changes or checks in a repository other than this session's, when jam denied an edit in another repository, or when this session was started by another session and owes it a report.
 ---
 
 # Delegating work to another repository
 
-jam starts, lists and stops background Claude Code sessions; messages between
-sessions go through Claude Code's own `SendMessage`. Run jam through its MCP
-tools (`mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, `__whoami`) or, when
-they are not connected, through the command line that the jam session notice
-gives. Do not guess where the plugin is installed.
+jam starts, lists and stops sessions of the agent harness you run on —
+background Claude Code sessions on Claude Code, `devin -p` sessions on the
+Devin CLI. Messages between sessions go through the harness's own primitive:
+`SendMessage` on Claude Code, `devin -r <id> -p "<message>"` on Devin. Run jam
+through its MCP tools (`mcp__plugin_jam_jam__spawn`, `__list`, `__stop`,
+`__whoami`) or, when they are not connected, through the command line that the
+jam session notice gives. Do not guess where the plugin is installed.
 
 ## When to delegate
 
@@ -47,6 +49,17 @@ and what is left open."
   end your turn.
 - To reply to a `<cross-session-message from="...">`, copy its `from` as your
   `to`.
+
+## On the Devin CLI
+
+Messaging is `devin -r <id> -p "<message>"`, run through `exec` in the
+session's own directory: it resumes the session, sends the message, and the
+command's output IS the peer's reply — send and result are fused, so the call
+blocks until the peer answers and there is no idle wake or `notify_when_idle`
+to wait on. A reply the peer owes you comes back the same way, from its side.
+`whoami` cannot answer on Devin — no session id reaches a session's own
+environment — so identify your row in `list` by `cwd` instead, and address
+peers by the `id` `list` shows.
 
 ## Peers, not orders
 

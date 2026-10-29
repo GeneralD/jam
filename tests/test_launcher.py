@@ -52,9 +52,17 @@ class LauncherTestCase(unittest.TestCase):
         self.path = os.pathsep.join([str(self.bin), "/usr/bin", "/bin"])
         self.assertEqual(shutil.which("claude", path=self.path), str(fake), "the fake claude must shadow any real one")
 
+    # The variables of every supported harness are stripped: CLAUDE* (some hold
+    # credentials) and the Devin set, so no ambient harness leaks into the subprocess.
+    OTHER_HARNESS_VARS = ("AI_AGENT", "PLUGIN_DATA", "PLUGIN_ROOT", "CHISEL_SESSION_DB")
+
     def env(self, **extra):
-        """The parent environment minus every CLAUDE* variable (some hold credentials), on a closed PATH."""
-        kept = {key: value for key, value in os.environ.items() if not key.startswith("CLAUDE")}
+        """The parent environment minus every harness variable (some hold credentials), on a closed PATH."""
+        kept = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("CLAUDE", "DEVIN_")) and key not in self.OTHER_HARNESS_VARS
+        }
         return {**kept, "PATH": self.path, **extra}
 
     def jam(self, *args, stdin=b"", cwd=None, env=None, launcher=LAUNCHER, flags=("-I",)):
