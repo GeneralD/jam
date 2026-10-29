@@ -134,9 +134,9 @@ class StatementsOfWhatASessionGetsTest(unittest.TestCase):
             d12,
         )
 
-    def test_d13_says_a_reload_did_not_run_the_session_start_hooks_in_the_one_session_checked(self):
+    def test_d13_records_the_missing_notice_and_record_after_a_reload_without_claiming_a_skip(self):
         d13 = flat(section(DECISIONS, "D13."))
-        bullet = d13.split("**A reload did not run the SessionStart hooks (observed once, #24).**")[1].split(" - **")[0]
+        bullet = d13.split("**No notice and no start record after a reload (observed once, #24).**")[1].split(" - **")[0]
         for phrase in (
             "On 2.1.309 (2026-10-28), `/reload-plugins` in one running background session reported four more hooks, and no notice arrived and no start record was written there, which fits the notice and `adopt` not having run;",
             "that `prune` did not run is inferred, since it leaves nothing in an empty directory.",
@@ -147,6 +147,7 @@ class StatementsOfWhatASessionGetsTest(unittest.TestCase):
                 self.assertIn(phrase, bullet)
         self.assertNotRegex(bullet, OVERREACH)
         self.assertNotIn("**A reload does not run them", d13)
+        self.assertNotIn("**A reload did not run the SessionStart hooks", d13)
         self.assertNotIn("without running the three SessionStart hooks", d13)
         self.assertIn("**`notice`** has no matcher, so it fires again on resume, clear, compact and fork", d13)
 

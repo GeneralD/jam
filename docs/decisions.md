@@ -432,7 +432,7 @@ through the same launcher, with `|| exit 0` appended; it is D14.
   extra deny per repository. A ticket counts only when it was written at most
   300 seconds before the start (a ticket dated in the future counts as fresh),
   so a worker whose first session start comes later gets no mark.
-- **A reload did not run the SessionStart hooks (observed once, #24).** On
+- **No notice and no start record after a reload (observed once, #24).** On
   2.1.309 (2026-10-28), `/reload-plugins` in one running background session
   reported four more hooks, and no notice arrived and no start record was
   written there, which fits the notice and `adopt` not having run; that `prune`
