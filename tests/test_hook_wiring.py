@@ -29,7 +29,7 @@ HARNESS_PACKAGE = "jam.harness"
 SESSION_START = "SessionStart"
 PRE_TOOL_USE = "PreToolUse"
 # The guard's entry (D14). The `|| exit 0` keeps a missing script, which exits 2 and would block every edit, from blocking one.
-EDIT_TOOLS = "Edit|Write|MultiEdit|NotebookEdit"
+EDIT_TOOLS = "Edit|Write|MultiEdit|NotebookEdit|edit|write|apply_patch|notebook_edit"
 EXIT_ZERO = " || exit 0"
 GUARD_COMMAND = LAUNCH + "guard" + EXIT_ZERO
 GUARD_TIMEOUT = 5
@@ -128,7 +128,7 @@ class DeclaredHooksTest(unittest.TestCase):
     def test_the_guard_is_the_only_pre_tool_use_group_with_the_exact_edit_tools_and_one_hook(self):
         (group,) = self.document["hooks"][PRE_TOOL_USE]
         self.assertEqual(group["matcher"], EDIT_TOOLS)
-        self.assertRegex(group["matcher"], r"^[A-Za-z|]+$")  # letters and `|` only: the platform reads it as an exact-name list, not a pattern
+        self.assertRegex(group["matcher"], r"^[A-Za-z|_]+$")  # letters, `|` and `_` only: the platform reads it as an exact-name list, not a pattern
         (hook,) = group["hooks"]
         self.assertEqual((hook["command"], hook["timeout"]), (GUARD_COMMAND, GUARD_TIMEOUT))
 

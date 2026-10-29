@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import IO, Any, Final, Optional
 
 from ..errors import InvalidRequest, RegistryError
-from . import claude_env, hook_io, notice
+from . import claude_env, devin_env, hook_io, notice
 
 # Derived from this file's own place in the tree (<root>/src/jam/harness); compose.PLUGIN_ROOT is the same directory, pinned equal by a test.
 # No resolve() here: the launcher already hands over a resolved src path, and a path lookup must not run before the alarm or inside the notice.
@@ -69,9 +69,17 @@ RESUMED: Final = ("resume", "clear", "compact", "fork")
 Handler = Callable[[dict[str, Any], Mapping[str, str]], Optional[str]]
 
 
+def _env(env: Mapping[str, str]):
+    """The environment module matching the harness that launched this hook; Claude markers win ties."""
+    for env_module in (claude_env, devin_env):
+        if env_module.detect(env):
+            return env_module
+    return claude_env
+
+
 def notice_text(payload: dict[str, Any], env: Mapping[str, str]) -> str:
     """The notice for the session in `payload`; the source, cwd and transcript path are deliberately not read."""
-    prefix = notice.invocation_prefix(str(PLUGIN_ROOT), claude_env.data_dir(None, env))
+    prefix = notice.invocation_prefix(str(PLUGIN_ROOT), _env(env).data_dir(None, env))
     return notice.session_notice(prefix, payload.get("session_id"))
 
 
@@ -82,7 +90,7 @@ def prune(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
     sits in a `finally` of the one before, so a bug in one cannot keep the next from
     running, and the bug is still reported.
     """
-    directory = claude_env.data_dir(None, env)
+    directory = _env(env).data_dir(None, env)
     if directory is None:
         return None
     deadline = time.monotonic() + PRUNE_BUDGET
@@ -132,7 +140,7 @@ def adopt(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
     record does not cost the mark, and a failure in the mark is still reported
     after the record is written.
     """
-    directory = claude_env.data_dir(None, env)
+    directory = _env(env).data_dir(None, env)
     if directory is None:
         return None
     from .. import claims
@@ -156,7 +164,17 @@ def _mark_taken(directory: str, session_id: object, cwd: object, source: object)
 
 # The tool calls that edit a file, and the input fields that name it, in the order they are tried.
 # MultiEdit is in no documentation page that was checked, so nothing may depend on the platform sending it; a payload of that name is read like an Edit.
-EDIT_FIELDS: Final = {"Edit": ("file_path",), "Write": ("file_path",), "MultiEdit": ("file_path",), "NotebookEdit": ("notebook_path", "file_path")}
+# The lowercase names are Devin CLI's edit tools; apply_patch is included on the same file_path assumption, which fails open (no field, no denial) if Devin names it differently.
+EDIT_FIELDS: Final = {
+    "Edit": ("file_path",),
+    "Write": ("file_path",),
+    "MultiEdit": ("file_path",),
+    "NotebookEdit": ("notebook_path", "file_path"),
+    "edit": ("file_path",),
+    "write": ("file_path",),
+    "apply_patch": ("file_path",),
+    "notebook_edit": ("notebook_path", "file_path"),
+}
 
 
 def edit_target(payload: dict[str, Any]) -> Optional[str]:
@@ -182,7 +200,8 @@ def _joined(cwd: object, relative: str) -> Optional[str]:
 def edit_denial(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
     """The reason to deny the edit in `payload`, or None to leave the call to the normal permission flow."""
     target = edit_target(payload)
-    data_dir = claude_env.data_dir(None, env)
+    env_module = _env(env)
+    data_dir = env_module.data_dir(None, env)
     if target is None or data_dir is None:
         return None
     from .. import guard
@@ -190,7 +209,7 @@ def edit_denial(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str
     effects = _live_effects(data_dir)
     if effects is None:
         return None
-    edit = guard.Edit(payload.get("session_id"), target, claude_env.project_dir(env), claude_env.config_dir(env))
+    edit = guard.Edit(payload.get("session_id"), target, env_module.project_dir(env), env_module.config_dir(env))
     denial = guard.decide(edit, effects)
     return None if denial is None else notice.deny_reason(denial.root)
 

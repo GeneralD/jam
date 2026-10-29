@@ -925,6 +925,80 @@ between peers).
   descriptions what they say alone; D15-2, yes: the deny reason now says to call
   `spawn` from the main conversation, and a subagent to hand the work back.
 
+## D16. The Devin CLI harness
+
+Decided on 2026-10-29. D4 scoped v1 to Claude Code; the owner then asked for
+Devin CLI support and named Codex as a future candidate, so the adapter seam is
+now exercised by a second harness. The core is untouched: everything Devin
+lives in `harness/devin.py` and `harness/devin_env.py`, and `compose` picks by
+environment.
+
+What Devin is, verified on devin 3000.11.92 (2026-10-29): there is no
+daemon-managed background stack, no `--bg` and no `SendMessage`. A session is a
+row in `~/.local/share/devin/cli/sessions.db` (SQLite, `sessions` table) that
+`devin -p "<prompt>"` creates and then runs; the row persists and the session
+is resumable after the process exits. `devin -r <id> -p "<message>"` resumes
+it and answers synchronously; `devin list --format json` lists the sessions of
+the directory it runs in; `devin rm <id>` deletes the record. An untrusted
+directory makes `devin -p` refuse with "untrusted workspace" on stderr.
+
+The adapter's mapping:
+
+- **spawn** → `devin -p` detached (`Popen`, new session, stdin devnull, output
+  to a temp log read only on early exit). The new id is discovered by diffing
+  `devin list` in the target directory before and after the launch, under a
+  bounded poll (20 s). The spawned process's pid is written to a pidfile next
+  to the store so `stop` can end a run still in flight. `name` is refused:
+  Devin picks the id itself, and a wrong claim of support is worse than a
+  refusal.
+- **list** → `devin list --format json` in the given `cwd` (the CLI is
+  directory-scoped). With no `cwd` the adapter reads `sessions.db` read-only
+  through stdlib `sqlite3`, excluding `hidden` rows unless `include_exited`.
+  The schema is internal, so the CLI stays the preferred path wherever a
+  directory applies. `state` is reported as `resumable`: rows are at rest, and
+  claiming a run-state the store does not expose would invent it.
+- **stop** → SIGTERM the recorded pid when it still is a devin process (a `ps`
+  probe guards against a reused pid), then `devin rm`. There is no
+  stopped-but-listed state: the row is the session, so nothing is returned.
+- **remove** → `devin rm`, then a store re-check.
+- **whoami** → an error, not a guess. Devin exports no session id to a
+  session's own environment (only a traceparent and an internal db pointer);
+  ids reach hooks through the payload but not the Bash a `whoami` runs
+  through. A wrong id is worse than none (D12); the error names `list` +
+  `cwd` matching as the fallback.
+- **Messaging** is not a jam verb on either harness: the delegate skill names
+  `devin -r <id> -p "<message>"` for Devin. Send and result are fused — the
+  call returns the peer's reply directly, with no idle wake.
+
+Hooks and packaging need no second implementation. Devin's binary carries
+Claude's hook schema wholesale (`ClaudeHookConfig`,
+`ClaudeHookSpecificOutput` with the full event set), honors the
+`hookSpecificOutput` envelope including `permissionDecision`, and expands
+`${CLAUDE_PLUGIN_ROOT}` — observed through a dual-harness plugin whose
+`SessionStart`/`PreToolUse`/`Stop` entries run unchanged on both. The only
+manifest change is the PreToolUse matcher gaining Devin's lowercase tool
+names. Hook-side environment resolution picks per detected harness: Devin's
+variables are `PLUGIN_DATA`, `DEVIN_PLUGIN_ROOT`, `DEVIN_PROJECT_DIR`,
+`AI_AGENT=devin_*`; the deny path also reads `~/.devin` as its config dir.
+Devin's hook payload carries `session_id` and `cwd` like Claude's, so `adopt`
+and the guard work unchanged.
+
+Harness selection: `detect` in `devin_env` marks a Devin context
+(`AI_AGENT=devin_*`, `DEVIN_PROJECT_DIR`, or `PLUGIN_DATA`); anything else is
+Claude. The composition root is still the only module that names an adapter,
+and env modules are still the only ones that name variables.
+
+Rejected:
+
+- **`devin acp` as the transport**: ACP sessions die with their stdio process
+  and cannot be resumed across calls the way the persisted CLI sessions can.
+- **The database as the only `list` path**: an internal schema behind an
+  official listing command is the fallback, not the default.
+- **A `send`/`message` verb**: keeps the verb surface identical across
+  harnesses; the skill teaches the native primitive.
+- **Codex and further harnesses**: still out of scope; what this decision
+  proves is the seam.
+
 ## Plugin platform facts
 
 Unless marked as verified, these facts were taken from the official Claude Code

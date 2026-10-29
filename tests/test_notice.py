@@ -23,7 +23,7 @@ PLUGIN_FILES = Path(__file__).resolve().parent.parent
 
 # The notice is spelled out line by line on purpose: a test that built the
 # expectation from the module's own constants could not notice a changed word.
-HEAD = "jam lets this session start, list and stop background Claude Code sessions in other directories."
+HEAD = "jam lets this session start, list and stop agent sessions in other directories."
 RUN = f"Run jam through Bash exactly as: {PREFIX} COMMAND"
 RUN_WITHOUT_DATA = f"Run jam through Bash exactly as: {PLAIN} COMMAND"
 RUN_UNAVAILABLE = "The jam command line is unavailable here; use the MCP tools."

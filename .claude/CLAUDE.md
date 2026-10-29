@@ -1,9 +1,10 @@
 # jam — Junction for AI Messaging
 
 A Claude Code plugin that lets AI coding agent sessions in different
-repositories pass prompts and results to each other. v1 targets Claude Code
-sessions registered with its background session stack, and uses the native
-`SendMessage` for messaging.
+repositories pass prompts and results to each other. The supported harnesses
+are Claude Code — sessions registered with its background session stack,
+messaged through the native `SendMessage` — and the Devin CLI, whose persisted
+`devin -p` sessions are messaged through `devin -r <id> -p` (D16).
 
 ## Read first
 
@@ -40,9 +41,9 @@ sessions registered with its background session stack, and uses the native
   `additionalContext`. Reason: the plugin cache path changes per version, and
   this repo is public.
 - **Core is stdlib-only and harness/environment-agnostic.** Everything specific
-  to Claude Code or a terminal lives in an adapter. Reason: later harnesses and
-  terminals must not touch the core. v1 has the Claude Code harness adapter
-  only; do not add adapters for other harnesses or terminals.
+  to a harness or a terminal lives in an adapter. Reason: later harnesses and
+  terminals must not touch the core. The adapters are Claude Code and the Devin
+  CLI (D16); do not add another harness without a decision record.
 - **Wrap, do not replace, what Claude Code already provides** (`claude --bg`,
   `claude agents --json`, `logs`, `attach`, `stop`, `rm`, and `SendMessage`).
   Reason: a custom socket daemon was considered and rejected as a duplicate of

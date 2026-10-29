@@ -8,7 +8,7 @@
     {
       "name": "jam",
       "source": "./",
-      "description": "Let Claude Code sessions in different repositories spawn each other, find each other, and pass prompts and results."
+      "description": "Let agent sessions in different repositories spawn each other, find each other, and pass prompts and results."
     }
   ]
 }
