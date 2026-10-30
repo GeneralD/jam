@@ -13,6 +13,8 @@ repos instead of switching contexts by hand.
 
 - **Spawn** a background session in any directory.
 - **List** live sessions with their IDs, working directories, and state.
+- **Stop** a session when it has nothing left to do, or **close** it, which also
+  deletes it, when the owner asks for that (D17).
 - **Send** a prompt to a session and **receive** its result back, using the
   harness's own primitive: Claude Code's `SendMessage`, or `devin -r` on the
   Devin CLI.
@@ -36,7 +38,7 @@ jam is split into a harness-neutral core and two kinds of adapters, so new
 agents and terminal environments can be added later without touching the core.
 
 ```text
-core            session registry, verbs: spawn / list / stop / whoami
+core            session registry, verbs: spawn / list / stop / close / whoami
  ├ harness      how a session is started, listed, stopped, and read
  └ environment  seam for terminal-specific delivery (no adapter in v1)
 messaging       the harness's own primitive (SendMessage / devin -r), taught by a skill
@@ -44,7 +46,7 @@ entry points    MCP server (plugin.json) and CLI (scripts/jam), one operations t
 ```
 
 The MCP server is declared inline in `.claude-plugin/plugin.json` and offers
-`spawn`, `list`, `stop`, and `whoami` as tools. The CLI is the launcher
+`spawn`, `list`, `stop`, `close`, and `whoami` as tools. The CLI is the launcher
 `scripts/jam`, run as `python3 -I <plugin root>/scripts/jam <command>`; it is
 the fallback for when the tools are not available. Both print the same JSON for
 the same arguments. The reasoning is in [docs/decisions.md](docs/decisions.md)
@@ -126,7 +128,7 @@ points still open are under "Plugin platform facts" in
 ## Status
 
 Early development. The plugin installs from this repository and carries the MCP
-server and the CLI with `spawn`, `list`, `stop`, and `whoami`, plus three
+server and the CLI with `spawn`, `list`, `stop`, `close`, and `whoami`, plus three
 SessionStart hooks: the notice that tells the model how to run jam, the step
 that records the start directory and, at a fresh start, turns a spawn ticket
 from the last 300 seconds into a worker mark, and the startup sweep of stale

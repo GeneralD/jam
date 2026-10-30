@@ -71,12 +71,12 @@ return only if native messaging proves insufficient for a registered session.
 
 Decided on 2026-10-15 (native-first).
 
-Core is a session registry plus the verbs `spawn`, `list`, `stop`, and `whoami`
-(D12 shows how the entry points expose them). It is stdlib-only and knows
+Core is a session registry plus the verbs `spawn`, `list`, `stop`, `close`, and
+`whoami` (D12 shows how the entry points expose them; `close` is D17). It is stdlib-only and knows
 nothing about a harness or a terminal. `send` and `result` are not jam verbs in
 v1: the skill (D15) teaches the AI to use the native `SendMessage`, addressing a
 session by the name `ListAgents` prints. The harness adapter declares what it
-can do in v1 (`spawn_bg`, `list`, `stop`); messaging is the native
+can do in v1 (`spawn_bg`, `list`, `stop`, `remove`); messaging is the native
 `SendMessage`, not a jam capability. The environment seam would declare
 terminal-specific capabilities (`inject`, `read_screen`, `wake_idle`) only if an
 adapter were ever added, and the core degrades gracefully without them.
@@ -229,8 +229,8 @@ checked against the official documentation (see "Plugin platform facts" for
 which claims are documented and which are client behavior seen in the design
 pass).
 
-- **One table, two transports.** `spawn`, `list`, `stop`, and `whoami` are rows
-  of one operations table. The table generates the MCP tool schemas and the CLI
+- **One table, two transports.** `spawn`, `list`, `stop`, `close`, and `whoami`
+  are rows of one operations table. The table generates the MCP tool schemas and the CLI
   parser, checks arguments in one place, and is the only code that runs the core
   and the only code that catches exceptions. The MCP server and the CLI are thin
   transports over it, so they cannot disagree: for the same arguments the CLI
@@ -258,8 +258,8 @@ pass).
   fail the call. The composition root substitutes a stand-in registry whose
   writes raise `RegistryError` with a path-free reason, which the service turns
   into `problem` next to a result that is still correct (D11): `spawn` still
-  returns its id, `list` still returns its rows, and `stop` and `whoami` never
-  touch the registry. Nothing is created at startup or at construction, because
+  returns its id, `list` still returns its rows, and `stop`, `close` and `whoami`
+  never touch the registry. Nothing is created at startup or at construction, because
   the platform may start the MCP server more than once per session start.
   An empty listing reads no notes, so it reports no `problem` even when the
   registry is unavailable; the first `spawn` names the reason.
@@ -340,7 +340,8 @@ pass).
   newer; the README states it). The install-only rule forbids settings edits, not
   a documented interpreter requirement.
 - **Names.** The server key is `jam` and the tools are bare verbs, so the model
-  sees `mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, and `__whoami`.
+  sees `mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, `__close`, and
+  `__whoami`.
   Descriptive names would only be worth it if tool search were seen hiding them.
 - **Verified later.** A print-mode session (`claude -p --plugin-dir .`, Claude
   Code 2.1.300, 2026-10-21) listed the server `plugin:jam:jam` as connected with
@@ -353,8 +354,8 @@ pass).
   supervisor starts with a narrower PATH may still fail. A failure reads "cannot
   run 'claude': executable not found"; add a binary override only if it happens.
 - **Deferred.** Self-stop refusal in code (the short id is not reliably known
-  over MCP, so the `stop` description warns instead), a `remove` or `prune`
-  verb, and the MCP extras (server instructions, pagination, structured output,
+  over MCP, so the `stop` description warns instead), a `prune` verb (a `remove`
+  one was added as `close`, D17), and the MCP extras (server instructions, pagination, structured output,
   cancellation). Server instructions are the extra that could reach a session
   that only reloaded the plugin, if Claude Code injects them at reload; that was
   not checked (#24). The SessionStart wiring and the notice text that were
@@ -406,7 +407,7 @@ through the same launcher, with `|| exit 0` appended; it is D14.
 - **`notice`** has no matcher, so it fires again on resume, clear, compact and
   fork, which also re-injects the notice after a compaction. It prints the text
   that tells the model how to run jam: `python3 -I <root>/scripts/jam --data-dir
-  <dir> COMMAND`, the four commands, the MCP tool names, the session's own id,
+  <dir> COMMAND`, the commands, the MCP tool names, the session's own id,
   and the delegation rationale of D6 without mentioning the guard (D14-7).
 - **`prune`** has the matcher `startup`, because it would otherwise run again on
   every resume, clear and compact. It calls `Registry.prune`, then sweeps the
@@ -911,7 +912,8 @@ between peers).
   decides, and is not denied a second time for that repository.
 - **What it leaves out.** It repeats a rule of the tool descriptions only where
   its guidance builds on it, for example the complete brief, peer messages as
-  input, the session name, replies, and never stopping its own session, so a
+  input, the session name, replies, and never stopping its own session, closing
+  one only when the owner asks (D17), so a
   change to one of those descriptions may call for the same change here. It
   leaves out what they cover alone, such as the `problem` of a spawn result, a
   timeout, an untrusted workspace, the characters of a `name`, `include_exited`,
@@ -1011,6 +1013,62 @@ Rejected:
   harnesses; the skill teaches the native primitive.
 - **Codex and further harnesses**: still out of scope; what this decision
   proves is the seam.
+
+## D17. Closing a session
+
+Decided on 2026-10-29, from issue #32 and the owner's request. When the owner
+explicitly asks for a session to be closed, `stop` is the wrong verb: on Claude
+Code a stopped session stays in `claude agents --all` until it is removed (see
+"Plugin platform facts"), and jam had no way to remove it, because D12 deferred
+a `remove` verb.
+
+- **The verb.** `close` takes one short `id`, and is one more row of the
+  operations table (D12), so the CLI (`jam close ID`) and the MCP tool
+  (`mcp__plugin_jam_jam__close`) print the same line. It stops the session, then
+  deletes it through the adapter's `remove`, which re-checks the full listing.
+  The result is `{"id", "closed": true}`, and anything else is a failure.
+  Stopping comes first for every session, with no check of whether it is
+  running: the core cannot tell on every harness (a Devin row never carries a
+  `status`), a stop ends a run that is still going, and a second `claude stop`
+  of a session that is stopped but still listed exits 0 (see "Verified"). A
+  session that is no longer listed once it is stopped is not deleted a second
+  time: that is the Devin CLI, where stopping removes the row (D16). An id the harness does not know fails at the stop, in the harness's words. The Claude adapter passes on only the whole short id (eight hexadecimal characters, the form of the spawn output), because `claude stop` and `claude rm` match the start of an id: a prefix would stop one session, find no row with that exact id, and read as a session that stopping had deleted.
+- **Who may use it.** Only when the owner asked to close or remove the session.
+  `stop` stays the verb for a session a model started and has nothing left to do for, and on Claude Code it keeps the conversation. On the Devin CLI stopping already deletes the record (D16), so there the two end the same way and only the owner's say-so separates them; the `stop` description says so. That answers the question issue #32
+  left to the owner, whether a model may delete the sessions it started: not on
+  its own initiative. Nothing in code can tell who is asking (sessions are
+  peers, D10), so, like the self-stop warning (D12), the tool description and
+  the skill (D15) carry the rule.
+- **Refusals are never forced.** `claude rm` has two flags that override a
+  refusal, `--discard-unpushed` for unpushed commits and uncommitted changes and
+  `--force-remove-worktree` for a worktree that cannot be removed, and each takes
+  a value that a previous `claude rm` reported. jam passes neither. A failure of the removal comes back as the harness's own words behind "the session was stopped, but removing it failed: ". The note leads so that clipping a long message cannot drop it, and it claims only that the removal step failed, because a failed re-check after a successful `rm` reads the same; `list` says whether the session is still there. `claude rm` reports a refusal on stdout, not stderr, together with the commands that override it (read from the strings of the 2.1.309 binary; no live refusal was seen), so the adapter relays the reason lines and drops any line that names `--discard-unpushed`, `--force-remove-worktree`, `ctrl+x` or the `claude rm` command. The owner decides what to do with the worktree and asks again.
+- **The registry.** A closed session's note stays until the sweep removes it by
+  age (D11). The listing only annotates rows that exist, so the note is never
+  shown, and `close` leaves the registry alone, as `stop` does.
+- **Rejected.** A flag on `stop` that also deletes: one verb that sometimes
+  destroys a conversation behind a boolean, where a model told to stop is one
+  wrong argument from deleting. A bulk verb that removes every stopped session
+  (D12's `prune`): a deletion should name one id. Documenting the owner's own
+  `claude rm` only: it leaves the model without an answer when the owner says
+  "close it". Skipping the stop for a session that is not running, which the
+  first draft did by reading a missing `status` as stopped: on the Devin CLI no
+  row has a `status`, so a run still in flight would have lost its record and
+  its pidfile and gone on running.
+- **Verified (2026-10-29, Claude Code 2.1.309).** On throwaway workers, `close`
+  of a busy one and of one that `stop` had left listed (`state: stopped`, no
+  `status`) each ended with the session gone from `list --include-exited`. A
+  second `close` of a closed id failed with "stopping <id> failed (exit 1): No
+  job matching '<id>'", and an id with a space failed as an invalid id before
+  `claude` ran. A second `claude stop` of a stopped, still listed session
+  printed `stopped <id>` and exited 0. The adapter's command sequence and the
+  refusal text are covered by unit tests against a scripted `claude`. A real refusal, over unpushed commits or uncommitted changes, was not provoked here, so the stdout form of its text is unobserved,
+  and `claude rm` on a running session without a stop was not tried: its help
+  says it also "works on already-exited sessions", so the stop stays first. The Devin side is covered by unit tests only, through the real adapter over a scripted `devin` and a temporary store. Observed once and not explained: two
+  workers that had finished a turn (`state: done`, `status: idle`, a live pid)
+  were gone from `claude agents --all` within about half a minute, before any
+  `stop` or `rm` was run on them, so a session can vanish between the listing
+  and the deletion.
 
 ## Plugin platform facts
 

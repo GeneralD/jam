@@ -32,6 +32,13 @@ class Stopped:
     session: Optional[Session]
 
 
+@dataclass(frozen=True)
+class Closed:
+    """What `close` reports: the id it was given. A failure raises instead."""
+
+    id: str
+
+
 def session_row(session: Session) -> dict[str, Any]:
     return {
         "id": session.id,
@@ -62,6 +69,10 @@ def stopped_object(stopped: Stopped) -> dict[str, Any]:
     return {"id": stopped.id, "session": None if stopped.session is None else session_row(stopped.session)}
 
 
+def closed_object(closed: Closed) -> dict[str, Any]:
+    return {"id": closed.id, "closed": True}
+
+
 def identity_object(identity: Identity) -> dict[str, Any]:
     return {"session_id": identity.session_id, "id": identity.id}
 
@@ -71,6 +82,7 @@ _OBJECTS: Final = {
     Listing: listing_object,
     Session: session_row,
     Stopped: stopped_object,
+    Closed: closed_object,
     Identity: identity_object,
 }
 

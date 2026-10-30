@@ -6,13 +6,14 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401  (puts src/ on sys.path)
-from jam.errors import HarnessError, InvalidRequest, RegistryError, UnparseableOutput, WorkspaceNotTrusted
+from jam.errors import HarnessError, InvalidRequest, RegistryError, StillListed, UnparseableOutput, WorkspaceNotTrusted
 from jam.harness.claude import ClaudeHarness
 from jam.registry import Record, Registry, spawned_marked
 from jam.service import Jam, Listed, Listing, SpawnResult, failure_reason, joined
 from jam.session import Session, Spawned
 
-from test_claude_harness import LIVE, FakeRunner, agents
+from test_claude_harness import LIVE, STOPPED, FakeRunner, agents, ok
+from jam.harness.claude import RunResult
 
 SPAWNED = Spawned(id="cccc3333", name="worker-c")
 
@@ -22,10 +23,10 @@ def session(session_id, **fields):
 
 
 class FakeHarness:
-    def __init__(self, sessions=(), spawn_error=None, list_error=None, on_spawn=None):
+    def __init__(self, sessions=(), spawn_error=None, list_error=None, on_spawn=None, remove_error=None):
         self.sessions = list(sessions)
-        self.spawn_error, self.list_error, self.on_spawn = spawn_error, list_error, on_spawn
-        self.spawn_calls, self.list_calls, self.stop_calls = [], [], []
+        self.spawn_error, self.list_error, self.on_spawn, self.remove_error = spawn_error, list_error, on_spawn, remove_error
+        self.spawn_calls, self.list_calls, self.stop_calls, self.remove_calls = [], [], [], []
 
     def spawn(self, cwd, prompt, name=None, permission_mode=None):
         self.spawn_calls.append((cwd, prompt, name, permission_mode))
@@ -44,6 +45,11 @@ class FakeHarness:
     def stop(self, session_id):
         self.stop_calls.append(session_id)
         return session(session_id)
+
+    def remove(self, session_id):
+        self.remove_calls.append(session_id)
+        if self.remove_error:
+            raise self.remove_error
 
 
 class StubRegistry:
@@ -195,6 +201,119 @@ class StopTest(ServiceTestCase):
         self.assertEqual(stopped.id, "aaaa1111")
         self.assertEqual(harness.stop_calls, ["aaaa1111"])
         self.assertEqual((stub.updates, stub.records, stub.removes), ([], [], []))
+
+
+class GoneAfterStopHarness(FakeHarness):
+    """Like the Devin adapter: stopping a session deletes it, so no row is left to report."""
+
+    def stop(self, session_id):
+        self.stop_calls.append(session_id)
+        return None
+
+
+class StoppingFailsHarness(FakeHarness):
+    def stop(self, session_id):
+        self.stop_calls.append(session_id)
+        raise HarnessError("stopping aaaa1111 failed (exit 1): no such session")
+
+
+ALL = ["claude", "agents", "--json", "--all"]
+LIVE_STOPPED = {key: value for key, value in LIVE.items() if key not in ("pid", "status")}
+STOPPED_A = {**LIVE_STOPPED, "state": "stopped"}
+
+
+class CloseTest(ServiceTestCase):
+    def test_a_session_is_stopped_and_then_removed_without_asking_for_a_listing(self):
+        harness, stub = FakeHarness([session("aaaa1111")]), StubRegistry()
+        self.assertIsNone(Jam(harness, stub).close("aaaa1111"))
+        self.assertEqual((harness.stop_calls, harness.remove_calls, harness.list_calls), (["aaaa1111"], ["aaaa1111"], []))
+        self.assertEqual((stub.updates, stub.records, stub.removes), ([], [], []))
+
+    def test_nothing_is_removed_when_stopping_leaves_no_row(self):
+        harness = GoneAfterStopHarness()
+        Jam(harness, StubRegistry()).close("aaaa1111")
+        self.assertEqual((harness.stop_calls, harness.remove_calls), (["aaaa1111"], []))
+
+    def test_a_failed_stop_is_reported_as_it_is_and_nothing_is_removed(self):
+        harness = StoppingFailsHarness()
+        with self.assertRaisesRegex(HarnessError, "no such session") as caught:
+            Jam(harness, StubRegistry()).close("aaaa1111")
+        self.assertNotIn("was stopped", str(caught.exception))
+        self.assertEqual(harness.remove_calls, [])
+
+    def test_a_refused_removal_says_the_session_was_stopped(self):
+        refusal = HarnessError("removing aaaa1111 failed (exit 1): the worktree has unpushed commits")
+        harness = FakeHarness([session("aaaa1111")], remove_error=refusal)
+        with self.assertRaises(HarnessError) as caught:
+            Jam(harness, StubRegistry()).close("aaaa1111")
+        self.assertEqual(
+            str(caught.exception),
+            "the session was stopped, but removing it failed: removing aaaa1111 failed (exit 1): the worktree has unpushed commits",
+        )
+        self.assertIs(caught.exception.__cause__, refusal)
+
+    def test_a_session_that_stays_listed_after_removal_is_reported_after_the_stop(self):
+        harness = FakeHarness([session("aaaa1111")], remove_error=StillListed("aaaa1111"))
+        with self.assertRaisesRegex(HarnessError, r"^the session was stopped, but removing it failed: session aaaa1111 is still listed after removal$"):
+            Jam(harness, StubRegistry()).close("aaaa1111")
+
+
+class CloseOnClaudeTest(ServiceTestCase):
+    """The commands a close runs on the real adapter, in order, against a scripted `claude`."""
+
+    def close(self, *results):
+        runner = FakeRunner(*results)
+        jam = Jam(ClaudeHarness(claude_bin="claude", runner=runner), Registry(self.data))
+        return jam, runner
+
+    def sequence(self, runner):
+        return [call[0] for call in runner.calls]
+
+    def test_a_running_session_is_stopped_then_removed_and_the_removal_is_checked(self):
+        jam, runner = self.close(ok("stopped aaaa1111"), agents(STOPPED_A), ok("removed aaaa1111"), agents())
+        jam.close("aaaa1111")
+        self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"], ALL, ["claude", "rm", "aaaa1111"], ALL])
+
+    def test_a_session_that_is_already_stopped_goes_through_the_same_steps(self):
+        # `claude stop` on a stopped row that is still listed exits 0 (observed on 2.1.309, D17), so there is no branch for it.
+        jam, runner = self.close(ok("stopped bbbb2222"), agents(STOPPED), ok("removed bbbb2222"), agents())
+        jam.close("bbbb2222")
+        self.assertEqual(self.sequence(runner), [["claude", "stop", "bbbb2222"], ALL, ["claude", "rm", "bbbb2222"], ALL])
+
+    def test_a_session_gone_once_stopped_is_not_removed(self):
+        jam, runner = self.close(ok("stopped aaaa1111"), agents())
+        jam.close("aaaa1111")
+        self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"], ALL])
+
+    def test_a_refusal_comes_back_with_the_harness_text_and_no_force_is_tried(self):
+        refusal = RunResult(1, "", "refusing to remove: the worktree has 2 unpushed commits")
+        jam, runner = self.close(ok("stopped aaaa1111"), agents(STOPPED_A), refusal)
+        with self.assertRaises(HarnessError) as caught:
+            jam.close("aaaa1111")
+        self.assertIn("refusing to remove: the worktree has 2 unpushed commits", str(caught.exception))
+        self.assertTrue(str(caught.exception).startswith("the session was stopped, but removing it failed: "))
+        self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"], ALL, ["claude", "rm", "aaaa1111"]])
+
+    def test_an_unknown_id_is_the_harness_failure_and_nothing_else_runs(self):
+        jam, runner = self.close(RunResult(1, "", "No job matching 'aaaa1111'"))
+        with self.assertRaisesRegex(HarnessError, "No job matching 'aaaa1111'") as caught:
+            jam.close("aaaa1111")
+        self.assertNotIn("was stopped", str(caught.exception))
+        self.assertEqual(self.sequence(runner), [["claude", "stop", "aaaa1111"]])
+
+    def test_a_prefix_of_an_id_is_rejected_because_claude_would_resolve_it(self):
+        jam, runner = self.close()
+        with self.assertRaises(InvalidRequest):
+            jam.close("aaaa")
+        self.assertEqual(runner.calls, [])
+
+    def test_an_invalid_id_is_rejected_before_anything_runs(self):
+        for bad in ("", "-x", "a b", "a;b", "x" * 65):
+            with self.subTest(bad=bad):
+                jam, runner = self.close()
+                with self.assertRaises(InvalidRequest):
+                    jam.close(bad)
+                self.assertEqual(runner.calls, [])
 
 
 class FailureReasonTest(unittest.TestCase):

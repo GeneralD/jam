@@ -5,12 +5,12 @@ description: Delegate work in another repository to a session started there with
 
 # Delegating work to another repository
 
-jam starts, lists and stops sessions of the agent harness you run on —
+jam starts, lists, stops and closes sessions of the agent harness you run on —
 background Claude Code sessions on Claude Code, `devin -p` sessions on the
 Devin CLI. Messages between sessions go through the harness's own primitive:
 `SendMessage` on Claude Code, `devin -r <id> -p "<message>"` on Devin. Run jam
 through its MCP tools (`mcp__plugin_jam_jam__spawn`, `__list`, `__stop`,
-`__whoami`) or, when they are not connected, through the command line that the
+`__close`, `__whoami`) or, when they are not connected, through the command line that the
 jam session notice gives. Do not guess where the plugin is installed.
 
 ## When to delegate
@@ -89,5 +89,8 @@ brief gives, adding the ref only when the name alone is ambiguous.
 ## Finish
 
 `stop` a session you started, or one the owner asked you to stop, once nothing
-is left for it, never your own (`whoami` tells you who you are). Removing a
-stopped session is up to the owner.
+is left for it, never your own (`whoami` tells you who you are). When the owner
+asks you to close or remove a session, use `close`: it stops the session and
+deletes it. A refusal (unpushed commits, uncommitted changes)
+goes back to the owner: jam never forces a delete, and you do not work around
+it.
