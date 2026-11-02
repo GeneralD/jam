@@ -153,7 +153,8 @@ class ToolsListTest(unittest.TestCase):
                 "unpushed commits",
                 "jam never forces a refusal",
                 "`discard_unpushed`",
-                "only when that commit is the head of a merged pull request or the owner said to drop it",
+                "only when the refusal names no uncommitted changes and its commit is the head of a merged pull request, "
+                "or the owner said to drop the work",
                 "the session was stopped, but removing it failed",
             ],
             "whoami": [

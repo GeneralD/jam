@@ -96,9 +96,9 @@ brief gives, adding the ref only when the name alone is ambiguous.
 `stop` a session you started, or one the owner asked you to stop, once nothing
 is left for it, never your own (`whoami` tells you who you are). `close` stops a
 session and deletes it: use it when the owner asks you to close or remove one,
-or told you to close the sessions you start once their work is done. jam
-refuses to close your own. A refusal over an unpushed commit ends with a
-`discard_unpushed` value: pass it to `close` only when that commit is the head
-of a merged pull request (`gh pr list --state merged --search <sha> --json
-headRefOid`), else take the refusal to the owner. jam never forces any other
-refusal, and you do not work around it.
+or told you to close the sessions you start once their work is done; jam
+refuses to close your own. A refusal over unpushed work ends with a
+`discard_unpushed` value that deletes the work: pass it to `close` only if the
+refusal names no uncommitted changes and its commit (before the `@`) is the
+`headRefOid` of a merged pull request (`gh pr list --state merged --search`);
+otherwise tell the owner. jam never forces a refusal; do not work around one.

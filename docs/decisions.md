@@ -904,8 +904,12 @@ between peers).
 
 - **What it relies on.** `SendMessage` and `ListAgents`: a session is addressed
   by the name `ListAgents` prints, the first line of `ListAgents` names the
-  calling session as others address it, a reply copies the `from` attribute of
-  the incoming `<cross-session-message>`, and `notify_when_idle: true` asks for
+  calling session as others address it, a reply goes to the `from-name`
+  attribute of the incoming `<cross-session-message>` when it has one, else to
+  its `from` (changed on 2026-11-02, issue #38: on Claude Code 2.1.295 every
+  cross-session message carried `from-name`, the sender's name, next to `from`,
+  a socket path that had gone stale once its sender restarted, although the
+  tool description says to copy `from`), and `notify_when_idle: true` asks for
   one notice when a session on this machine next goes idle. `notify_when_idle`
   works only in the main conversation, and a subagent's sends go out under its
   parent session's address, so the skill spawns and waits only from the main
@@ -1057,7 +1061,12 @@ a `remove` verb.
   `/clear`), the row whose full id matches. Where `whoami` cannot answer (the
   Devin CLI, a plain shell), no session is the caller's own and the close goes
   on. A session that closed itself would end the turn that asked, with nobody
-  left to report the outcome, so the description's warning became a check.
+  left to report the outcome, so the description's warning became a check. One
+  window is left: right after `/clear`, the command line's `whoami` has no short
+  id, and the listing showed the new full id only about 4 seconds later (see
+  "Session variables"), so a `close` of one's own id in those seconds is not
+  caught. The MCP server's `whoami` keeps the short id it started with. `stop`
+  keeps only its warning (D12).
 - **Refusals are never forced.** `claude rm` has two flags that override a
   refusal, `--discard-unpushed` for unpushed commits and uncommitted changes and
   `--force-remove-worktree` for a worktree that cannot be removed, and each takes
@@ -1067,9 +1076,14 @@ a `remove` verb.
   and has the branch deleted on merge leaves commits that exist on no remote,
   so `claude rm` refuses it although the work is merged, and every such close
   came back to the owner. The tool description, the failure text and the skill
-  give one rule for passing the value: the commit it names is the head of a
-  merged pull request, or the owner said to drop the work. jam cannot check that
-  rule (it would need the forge), so, like the owner's say-so, it lives in text.
+  give one rule for passing the value: the refusal names no uncommitted changes
+  and the commit it names is the head of a merged pull request, or the owner
+  said to drop the work. The value deletes the worktree with everything in it,
+  so uncommitted changes always go to the owner. The head of a merged pull
+  request carries every earlier commit of its branch, and a commit added after
+  the merge changes the head, so the rule covers every unpushed commit the
+  refusal lists. jam cannot check the rule (it would need the forge), so, like
+  the owner's say-so, it lives in text.
 - **The lock of the stopping process (2026-11-02).** A `claude rm` run right
   after `claude stop` once refused because "A Claude Code lock on the worktree
   names a process that is still running (pid N)", and a retry a few seconds

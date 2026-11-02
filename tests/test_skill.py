@@ -231,12 +231,13 @@ class BodyTest(unittest.TestCase):
     def test_it_closes_on_the_owners_word_or_standing_instruction_and_discards_only_merged_work(self):
         for phrase in (
             "`close` stops a session and deletes it: use it when the owner asks you to close or remove one, "
-            "or told you to close the sessions you start once their work is done.",
+            "or told you to close the sessions you start once their work is done;",
             "jam refuses to close your own.",
-            "A refusal over an unpushed commit ends with a `discard_unpushed` value: pass it to `close` only when "
-            "that commit is the head of a merged pull request",
-            "else take the refusal to the owner",
-            "jam never forces any other refusal, and you do not work around it.",
+            "A refusal over unpushed work ends with a `discard_unpushed` value that deletes the work: pass it to "
+            "`close` only if the refusal names no uncommitted changes and its commit (before the `@`) is the "
+            "`headRefOid` of a merged pull request",
+            "otherwise tell the owner.",
+            "jam never forces a refusal; do not work around one.",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.text)
