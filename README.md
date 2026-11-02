@@ -11,10 +11,14 @@ repos instead of switching contexts by hand.
 
 ## What it does
 
-- **Spawn** a background session in any directory.
+- **Spawn** a background session in any directory, on the model and effort the
+  task calls for (D18), with the project's name in front of the session's name
+  (D19).
 - **List** live sessions with their IDs, working directories, and state.
 - **Stop** a session when it has nothing left to do, or **close** it, which also
-  deletes it, when the owner asks for that (D17).
+  deletes it, when the owner asks for that or has said to (D17). A session
+  cannot close itself, and work that exists nowhere else is deleted only with
+  the value its refusal named.
 - **Send** a prompt to a session and **receive** its result back, using the
   harness's own primitive: Claude Code's `SendMessage`, or `devin -r` on the
   Devin CLI.

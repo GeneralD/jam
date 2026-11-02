@@ -16,6 +16,38 @@ def is_id(value: object) -> bool:
     return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
 
 
+# A model is an alias ("sonnet") or a full id. It becomes an argv entry, so it never starts with "-" (D18).
+MODEL_PATTERN: Final = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._-]{0,63}")
+EFFORTS: Final = ("low", "medium", "high", "xhigh", "max")
+
+
+def is_model(value: object) -> bool:
+    """True only for a string that can name a model without reading as a flag."""
+    return isinstance(value, str) and MODEL_PATTERN.fullmatch(value) is not None
+
+
+@dataclass(frozen=True)
+class SpawnOptions:
+    """What the spawning caller chose for the new session. None leaves it to the owner's settings (D18)."""
+
+    model: str | None = None
+    effort: str | None = None
+    subagent_model: str | None = None
+
+
+NO_OPTIONS: Final = SpawnOptions()
+
+# The value a removal refusal names to delete work that exists nowhere else: a commit and the worktree's id (D17).
+# It goes back as an argv entry, so it starts with a hexadecimal digit and holds no space.
+DISCARD_PATTERN: Final = re.compile(r"[0-9a-f]{40,64}@[A-Za-z0-9_-]{1,64}")
+NO_DISCARD: Final = "this harness keeps no unpushed work to discard; pass no discard_unpushed"
+
+
+def is_discard_value(value: object) -> bool:
+    """True only for a string in the form a refusal over unpushed commits names."""
+    return isinstance(value, str) and DISCARD_PATTERN.fullmatch(value) is not None
+
+
 @dataclass(frozen=True)
 class Spawned:
     id: str

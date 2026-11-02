@@ -16,10 +16,10 @@ from unittest import mock
 import support  # noqa: F401  (puts src/ on sys.path)
 from jam.errors import HarnessError, RegistryError
 from jam.registry import Record, Registry
-from jam.session import Session
+from jam.session import Session, SpawnOptions
 
-from test_claude_harness import SPAWN_STDOUT, FakeRunner, ok
-from test_operations import HINT, SESSION_ID, FailingStopHarness, lazy, operations, runtime_for
+from test_claude_harness import DISCARD, SPAWN_STDOUT, FakeRunner, ok
+from test_operations import HINT, SESSION_ID, FailingStopHarness, elsewhere, lazy, operations, runtime_for
 from test_service import FakeHarness, StubRegistry, session
 
 cli = lazy("jam.cli")
@@ -83,6 +83,13 @@ class SpawnCommandTest(unittest.TestCase):
         self.assertEqual(harness.spawn_calls, [("/work/x", "do it", "worker-c", None)])
         self.assertEqual(stub.updates, ["cccc3333"])
 
+    def test_the_model_effort_and_subagent_model_flags_reach_the_core(self):
+        harness = FakeHarness()
+        argv = ["spawn", "--cwd", "/work/x", "--model", "sonnet", "--effort", "low", "--subagent-model", "haiku", "--", "do it"]
+        code, out, err = run_cli(argv, runtime_for(harness))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(harness.spawn_options, [SpawnOptions(model="sonnet", effort="low", subagent_model="haiku")])
+
     def test_dash_led_and_multi_line_prompts_arrive_unchanged(self):
         for prompt in ("-fix it", "-h", "--name", "line one\nline two\n", "日本語の指示\n二行目"):
             with self.subTest(prompt=prompt):
@@ -139,15 +146,24 @@ class OtherCommandsTest(unittest.TestCase):
 
     def test_close_prints_the_result_and_a_refusal_is_a_failure(self):
         harness = FakeHarness([session("aaaa1111")])
-        code, out, err = run_cli(["close", "aaaa1111"], runtime_for(harness))
+        code, out, err = run_cli(["close", "aaaa1111"], runtime_for(harness, whoami=elsewhere))
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(json.loads(out), {"id": "aaaa1111", "closed": True})
         self.assertEqual((harness.stop_calls, harness.remove_calls), (["aaaa1111"], ["aaaa1111"]))
         refused = FakeHarness([session("aaaa1111")], remove_error=HarnessError("worktree has unpushed commits"))
         self.assertEqual(
-            run_cli(["close", "aaaa1111"], runtime_for(refused)),
+            run_cli(["close", "aaaa1111"], runtime_for(refused, whoami=elsewhere)),
             (1, "", "jam: the session was stopped, but removing it failed: worktree has unpushed commits\n"),
         )
+
+    def test_close_takes_a_discard_value_as_a_flag_and_refuses_the_callers_own_session(self):
+        harness = FakeHarness([session("aaaa1111")])
+        code, _, err = run_cli(["close", "aaaa1111", "--discard-unpushed", DISCARD], runtime_for(harness, whoami=elsewhere))
+        self.assertEqual((code, err, harness.discards), (0, "", [DISCARD]))
+        own = FakeHarness([session("aaaa1111")])
+        code, out, err = run_cli(["close", "aaaa1111"], runtime_for(own))
+        self.assertEqual((code, out, own.stop_calls), (1, "", []))
+        self.assertIn("own session", err)
 
     def test_whoami_prints_the_identity_from_the_injected_environment(self):
         env = {SESSION_VAR: SESSION_ID, JOB_VAR: "/jobs/aaaa1111", TOKEN_VAR: TOKEN}
@@ -177,10 +193,13 @@ class ParityTest(unittest.TestCase):
         busy = session("aaaa1111", status="busy", pid=1)
         cases = [
             (["spawn", "--cwd", "/work/x", "--name", "worker-c", "--", "do it"], "spawn", {"cwd": "/work/x", "prompt": "do it", "name": "worker-c"}),
+            (["spawn", "--cwd", "/work/x", "--model", "opus", "--effort", "max", "--subagent-model", "sonnet", "--", "p"], "spawn", {"cwd": "/work/x", "prompt": "p", "model": "opus", "effort": "max", "subagent_model": "sonnet"}),
             (["list", "--include-exited"], "list", {"include_exited": True}),
             (["list", "--cwd", "/work/x"], "list", {"cwd": "/work/x"}),
             (["stop", "aaaa1111"], "stop", {"id": "aaaa1111"}),
-            (["close", "aaaa1111"], "close", {"id": "aaaa1111"}),
+            # Not `aaaa1111`, the caller's own session, which close refuses.
+            (["close", "bbbb2222"], "close", {"id": "bbbb2222"}),
+            (["close", "bbbb2222", "--discard-unpushed", DISCARD], "close", {"id": "bbbb2222", "discard_unpushed": DISCARD}),
             (["whoami"], "whoami", {}),
         ]
         for argv, name, arguments in cases:
@@ -229,7 +248,8 @@ class UsageTest(unittest.TestCase):
     def test_an_unquoted_brief_shows_the_spawn_usage_with_its_prompt(self):
         _, _, err = run_cli([*SPAWN, "an", "unquoted", "brief"])
         self.assertTrue(err.startswith("usage: jam spawn"), err)
-        self.assertIn("PROMPT", err.splitlines()[0])
+        usage = err.split("jam: usage error", 1)[0]  # argparse wraps a long usage line
+        self.assertIn("PROMPT", usage)
         self.assertIn("unrecognized arguments: unquoted brief", err)
 
     def test_permission_mode_is_named_in_the_error(self):
@@ -258,9 +278,10 @@ class UsageTest(unittest.TestCase):
     def test_spawn_help_shows_the_flags_and_the_brief_recipe_but_not_a_permission_mode(self):
         code, out, err = run_cli(["spawn", "--help"])
         self.assertEqual((code, err), (0, ""))
-        for fragment in ("--cwd", "--name", "BRIEF"):
+        for fragment in ("--cwd", "--name", "--model", "--effort", "--subagent-model", "BRIEF"):
             self.assertIn(fragment, out)
         self.assertNotIn("--permission-mode", out)
+        self.assertNotIn("subagent_model", out)
 
 
 class DataDirTest(unittest.TestCase):

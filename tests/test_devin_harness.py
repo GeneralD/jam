@@ -21,6 +21,7 @@ from jam.harness.claude import RunResult
 from jam.harness.devin import DevinHarness
 from jam.registry import Registry
 from jam.service import Jam
+from jam.session import SpawnOptions
 
 from test_claude_harness import FakeRunner, ok
 
@@ -128,6 +129,31 @@ class SpawnTest(Case):
         harness, _ = self.harness()
         with self.assertRaises(InvalidRequest):
             harness.spawn(self.dir, "do the work", name="worker-a")
+
+    def test_it_does_not_name_sessions(self):
+        self.assertIs(DevinHarness.names_sessions, False)
+
+    def test_a_chosen_model_is_passed_as_devin_model(self):
+        harness, spawner = self.harness(ok(json.dumps(ROWS_V1)), ok(json.dumps(ROWS_V2)), ok(json.dumps(ROWS_V2)))
+        harness.spawn(self.dir, "do the work", options=SpawnOptions(model="claude-opus-4.6"))
+        self.assertEqual(spawner.calls[0][0], ["devin", "--model", "claude-opus-4.6", "-p", "do the work"])
+
+    def test_effort_and_a_subagent_model_are_refused_because_devin_has_neither(self):
+        for options, word in ((SpawnOptions(effort="low"), "effort"), (SpawnOptions(subagent_model="haiku"), "subagent model")):
+            with self.subTest(options=options):
+                harness, spawner = self.harness()
+                with self.assertRaises(InvalidRequest) as caught:
+                    harness.spawn(self.dir, "do the work", options=options)
+                self.assertIn(word, str(caught.exception))
+                self.assertEqual(spawner.calls, [])
+
+    def test_a_model_that_could_read_as_a_flag_is_refused(self):
+        for model in ("-x", "--print", "has space", "", 5):
+            with self.subTest(model=model):
+                harness, spawner = self.harness()
+                with self.assertRaises(InvalidRequest):
+                    harness.spawn(self.dir, "do the work", options=SpawnOptions(model=model))
+                self.assertEqual(spawner.calls, [])
 
     def test_spawn_validates_its_arguments(self):
         harness, _ = self.harness()
@@ -266,6 +292,13 @@ class CloseTest(Case):
             self.jam(runner).close("alpha-fjord")
         self.assertEqual([call[0] for call in runner.calls], [["devin", "rm", "alpha-fjord"]] * 2)
 
+    def test_a_discard_value_is_refused_before_the_stop_because_devin_keeps_no_worktree_to_discard(self):
+        make_db(self.db, [DB_ROWS[0]])
+        runner = FakeRunner()
+        with self.assertRaisesRegex(InvalidRequest, "pass no discard_unpushed"):
+            self.jam(runner).close("alpha-fjord", "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c@0123456789abcdef0123456789abcdef")
+        self.assertEqual(runner.calls, [])
+
 
 class RemoveTest(Case):
     def test_remove_calls_devin_rm_and_checks_the_store(self):
@@ -274,6 +307,14 @@ class RemoveTest(Case):
         harness = DevinHarness(runner=runner, db_path=str(self.db))
         harness.remove("bravo-mesa")
         self.assertEqual(runner.calls[0][0], ["devin", "rm", "bravo-mesa"])
+
+    def test_it_takes_no_discard_value_and_refuses_one_before_anything_runs(self):
+        runner = FakeRunner()
+        harness = DevinHarness(runner=runner, db_path=str(self.db))
+        self.assertIs(harness.discards_unpushed, False)
+        with self.assertRaisesRegex(InvalidRequest, "pass no discard_unpushed"):
+            harness.remove("bravo-mesa", "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c@0123456789abcdef0123456789abcdef")
+        self.assertEqual(runner.calls, [])
 
     def test_a_record_that_survives_removal_is_still_listed(self):
         make_db(self.db, [DB_ROWS[0]])
