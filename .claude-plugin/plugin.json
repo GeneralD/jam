@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "jam",
   "description": "Junction for AI Messaging: let agent sessions in different repositories spawn each other, find each other, and pass prompts and results.",
   "author": {
