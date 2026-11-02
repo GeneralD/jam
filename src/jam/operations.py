@@ -147,9 +147,10 @@ OPERATIONS: Final = (
         "own initiative; your own session is refused. To end a session you started once nothing is left "
         "for it, `stop` it. Deleting is permanent, and the harness decides what it refuses, for instance a "
         "worktree with unpushed commits or uncommitted changes, and jam never forces a refusal. A refusal over "
-        "unpushed commits ends with the `discard_unpushed` value that deletes them anyway: pass it only when "
-        "that commit is the head of a merged pull request or the owner said to drop it; tell the owner about "
-        "any other refusal instead of working around it. A failure that starts with \"the session was stopped, "
+        "unpushed work ends with the `discard_unpushed` value that deletes the worktree with that work: pass it "
+        "only when the refusal names no uncommitted changes and its commit is the head of a merged pull request, "
+        "or the owner said to drop the work; tell the owner about any other refusal instead of working around it. "
+        "A failure that starts with \"the session was stopped, "
         "but removing it failed\" means it may still be listed as stopped: check `list` with include_exited true.",
         (
             Param("id", "string", "The short session id, as `list` shows it.", required=True, positional=True),

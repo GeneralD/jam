@@ -420,7 +420,7 @@ class CloseOperationTest(unittest.TestCase):
         self.assertTrue(outcome.text.startswith("the session was stopped, but removing it failed: x"))
         self.assertLessEqual(len(outcome.text), 2000)
         tail = outcome.text[outcome.text.index(" | "):]
-        for phrase in (f"discard_unpushed {DISCARD}", "--discard-unpushed", "merged", "the owner"):
+        for phrase in (f"discard_unpushed {DISCARD}", "--discard-unpushed", "no uncommitted changes", "merged", "the owner"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, tail)
 

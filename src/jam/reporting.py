@@ -23,8 +23,9 @@ NOT_STARTED: Final = " | nothing was started; do not retry until the owner confi
 MAYBE_STARTED: Final = " | a session may have started: run list before retrying"
 # Ends a refusal over unpushed work (D17); kept apart from the message so that clipping never cuts the value.
 DISCARDABLE: Final = (
-    " | close again with discard_unpushed {token} (--discard-unpushed on the command line) to delete that work too,"
-    " only if that commit is the head of a merged pull request or the owner said to drop it"
+    " | close again with discard_unpushed {token} (--discard-unpushed on the command line) to delete the worktree"
+    " with that work, only if the refusal names no uncommitted changes and that commit is the head of a merged"
+    " pull request, or the owner said to drop the work"
 )
 _ANSI: Final = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)")
 

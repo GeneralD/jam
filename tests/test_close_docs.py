@@ -86,7 +86,10 @@ class DecisionsTest(unittest.TestCase):
             "**The caller's own session is refused (2026-11-02, issue #37).**",
             "Where `whoami` cannot answer (the Devin CLI, a plain shell), no session is the caller's own and the close goes on.",
             "**Why the discard value is relayed (2026-11-02, issue #37).**",
-            "the commit it names is the head of a merged pull request, or the owner said to drop the work",
+            "the refusal names no uncommitted changes and the commit it names is the head of a merged pull request, or the owner said to drop the work",
+            "so uncommitted changes always go to the owner",
+            "so a `close` of one's own id in those seconds is not caught",
+            "`stop` keeps only its warning (D12).",
             "**The lock of the stopping process (2026-11-02).**",
             "A lock still held at the bound is reported as it is",
             "**A stopped session that comes back (2026-11-02, issue #37).**",
@@ -97,6 +100,12 @@ class DecisionsTest(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, d17)
+
+    def test_d15_replies_by_the_senders_name_and_says_why(self):
+        d15 = flat(section(DECISIONS, "D15."))
+        self.assertIn("a reply goes to the `from-name` attribute of the incoming `<cross-session-message>` when it has one, else to its `from`", d15)
+        self.assertIn("a socket path that had gone stale once its sender restarted", d15)
+        self.assertNotIn("a reply copies the `from` attribute", d15)
 
     def test_d17_names_what_it_rejected_and_what_it_did_not_verify(self):
         d17 = flat(section(DECISIONS, "D17."))
