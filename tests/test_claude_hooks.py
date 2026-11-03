@@ -26,6 +26,7 @@ from test_claude_env import RecordingEnv
 from test_operations import SESSION_ID, lazy
 
 hooks = lazy("jam.harness.claude_hooks")
+notice = lazy("jam.harness.notice")
 compose = lazy("jam.compose")
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -295,9 +296,35 @@ class PluginRootTest(unittest.TestCase):
             "sys.path.insert(0, sys.argv[1])",
             "from jam.harness import claude_hooks",
             "claude_hooks.notice_text({}, {})",
+            "claude_hooks.server_instructions(None)",
         ])
         done = subprocess.run([sys.executable, "-I", "-c", script, str(SRC)], capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
+
+
+class ServerInstructionsTest(unittest.TestCase):
+    """The MCP server's `instructions` are the notice without the session id line, from the same builder as the hook (#31)."""
+
+    def test_they_equal_the_notice_built_without_a_session_id(self):
+        env = {"CLAUDE_PLUGIN_DATA": "/var/jam data", "CLAUDE_CODE_SESSION_ID": SESSION_ID}
+        self.assertEqual(hooks.server_instructions("/var/jam data"), hooks.notice_text({}, env))
+        self.assertEqual(hooks.server_instructions("/var/jam data"), notice.session_notice(notice.invocation_prefix(str(hooks.PLUGIN_ROOT), "/var/jam data"), None))
+
+    def test_they_name_the_data_directory_the_server_resolved_and_never_a_session_id(self):
+        text = hooks.server_instructions("/var/jam data")
+        self.assertIn("--data-dir '/var/jam data'", text)
+        self.assertNotIn("This session id", text)
+        self.assertNotIn(SESSION_ID, text)
+        self.assertTrue(text.startswith("jam lets this session"))
+
+    def test_without_a_data_directory_they_say_so_like_the_notice(self):
+        self.assertIn("jam keeps no notes", hooks.server_instructions(None))
+        self.assertNotIn("--data-dir", hooks.server_instructions(None))
+
+    def test_the_hook_notice_comes_from_the_same_builder_with_the_session_id(self):
+        env = {"CLAUDE_PLUGIN_DATA": "/var/jam data"}
+        self.assertEqual(hooks.notice_text({"session_id": SESSION_ID}, env), hooks.notice_for("/var/jam data", SESSION_ID))
+        self.assertIn(SESSION_ID, hooks.notice_for("/var/jam data", SESSION_ID))
 
 
 class ImportGraphTest(unittest.TestCase):

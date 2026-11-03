@@ -20,10 +20,11 @@ from .session import Identity, SpawnOptions
 
 @dataclass(frozen=True)
 class Runtime:
-    """What an operation needs. Both are factories, so building a Runtime does no work."""
+    """What an operation needs, and what the MCP server says about itself. All are factories, so building a Runtime does no work."""
 
     jam: Callable[[], Jam]
     whoami: Callable[[], Identity]
+    instructions: Callable[[], Optional[str]] = lambda: None  # the server's `instructions` at initialize; None or empty means none (D12)
 
 
 @dataclass(frozen=True)

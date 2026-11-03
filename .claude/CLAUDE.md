@@ -38,8 +38,9 @@ messaged through the native `SendMessage` — and the Devin CLI, whose persisted
   Reason: that is the product promise.
 - **No PATH, no hardcoded paths.** The AI learns the CLI location from a
   SessionStart hook that injects the resolved plugin path as
-  `additionalContext`. Reason: the plugin cache path changes per version, and
-  this repo is public.
+  `additionalContext`, and from the MCP server's `instructions`, which repeat
+  that notice without the session id. Reason: the plugin cache path changes
+  per version, and this repo is public.
 - **Core is stdlib-only and harness/environment-agnostic.** Everything specific
   to a harness or a terminal lives in an adapter. Reason: later harnesses and
   terminals must not touch the core. The adapters are Claude Code and the Devin

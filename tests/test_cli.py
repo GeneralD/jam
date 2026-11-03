@@ -338,6 +338,15 @@ class McpCommandTest(unittest.TestCase):
         manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(first["result"]["serverInfo"]["version"], manifest["version"])
         self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
+        self.assertNotIn("instructions", first["result"])
+
+    def test_the_mcp_command_hands_the_runtime_instructions_to_the_client(self):
+        bare = runtime_for()
+        runtime = operations.Runtime(bare.jam, bare.whoami, lambda: "jam lets this session start sessions.")
+        message = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25"}}
+        code, out, err = run_cli(["mcp"], runtime, stdin=(json.dumps(message) + "\n").encode("utf-8"))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out)["result"]["instructions"], "jam lets this session start sessions.")
 
     def test_a_tool_call_over_the_mcp_command_reaches_the_runtime(self):
         message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list", "arguments": {}}}

@@ -1,9 +1,11 @@
-"""Checks that the documents say what `/reload-plugins` did and did not give a running session (#24), within the one observation behind it, and that the sentences they replaced are gone.
+"""Checks that the documents say what `/reload-plugins` did and did not give a running session (#24), within the observations behind them, and that the sentences they replaced are gone.
 
 Same style as test_live_checks_docs.py: flattened text, one section at a time, and
 both the new wording and the removed wording pinned. The wording is scoped to what
-was seen (one background session, Claude Code 2.1.309, 2026-10-28), so the hedges
-are pinned too, and the unchecked points are listed where the claim is.
+was seen (one background session on 2026-10-28 and, for the MCP server
+`instructions` of #31, one foreground session on 2026-11-03, both on Claude Code
+2.1.309), so the hedges are pinned too, and the unchecked points are listed where
+the claim is.
 """
 
 from __future__ import annotations
@@ -33,12 +35,12 @@ class ReadmeInstallTest(unittest.TestCase):
             "What that session gets at a later restart, resume, clear or compact was not observed.",
             "For comparison, a print-mode `claude -p --resume <id>` of a session that had been created with jam disabled ran the SessionStart hooks with `source: resume`, notice included.",
             "The tool descriptions carry the instructions, and the notice is what gives the model the exact command line of the CLI, with the data directory flag, which matters only when the MCP server is not available.",
-            'That is one observation: other Claude Code versions, a foreground session and the Devin CLI were not checked, and the points still open are under "Plugin platform facts" in [docs/decisions.md](docs/decisions.md).',
+            'Each of those is one observation: other Claude Code versions and the Devin CLI were not checked, nor were the hooks in a reloaded foreground session, and the points still open are under "Plugin platform facts" in [docs/decisions.md](docs/decisions.md).',
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, paragraph)
 
-    def test_the_paragraph_stays_inside_the_one_observation(self):
+    def test_the_paragraph_uses_no_widening_word_and_drops_the_old_claims(self):
         paragraph = flat(section(README, "Install")).split(README_MARKER)[1]
         self.assertNotRegex(paragraph, OVERREACH)
         for removed in (
@@ -96,17 +98,18 @@ class PlatformFactTest(unittest.TestCase):
         self.assertNotIn("falls back to the project directory", flat(README))
         self.assertNotIn("the only place that gives the command line", bullet)
 
-    def test_the_bullet_lists_what_was_not_checked_and_keeps_the_server_instructions_open(self):
+    def test_the_bullet_lists_what_was_not_checked_and_records_the_server_instructions_check(self):
         bullet = fact()
         for phrase in (
-            "Not checked: other Claude Code versions; a foreground session;",
+            "Not checked: other Claude Code versions; the hooks in a foreground session;",
             "the hooks of a second running session, which was seen to start a jam MCP server after its own reload;",
             "whether a `clear` or a `compact` in a reloaded session runs the hooks;",
-            "the Devin CLI;",
-            "and whether a reload re-injects the MCP server `instructions`, which D12 defers and which would reach a reloaded session if it did (#24).",
+            "and the Devin CLI.",
+            'Whether a reload injects the MCP server `instructions` was checked on 2026-11-03, once the server returned some: it did, in one foreground session (see "MCP server instructions" below, #31).',
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, bullet)
+        self.assertNotIn("which D12 defers and which would reach a reloaded session if it did", bullet)
 
     def test_the_bullet_stays_inside_the_one_observation(self):
         self.assertNotRegex(fact(), OVERREACH)
@@ -126,13 +129,12 @@ class StatementsOfWhatASessionGetsTest(unittest.TestCase):
         )
         self.assertNotIn("and has the tool descriptions until its next start", d5)
 
-    def test_d12_keeps_the_server_instructions_deferred_and_names_the_open_question(self):
+    def test_d12_records_the_server_instructions_and_defers_only_the_other_extras(self):
         d12 = flat(section(DECISIONS, "D12."))
-        self.assertIn("the MCP extras (server instructions, pagination, structured output, cancellation).", d12)
-        self.assertIn(
-            "Server instructions are the extra that could reach a session that only reloaded the plugin, if Claude Code injects them at reload; that was not checked (#24).",
-            d12,
-        )
+        self.assertIn("and the other MCP extras (pagination, structured output, cancellation).", d12)
+        self.assertIn("- **Server instructions.** The `initialize` reply carries `instructions`: the session notice without the session id line", d12)
+        self.assertNotIn("the MCP extras (server instructions, pagination, structured output, cancellation).", d12)
+        self.assertNotIn("that was not checked (#24).", d12)
 
     def test_d13_records_the_missing_notice_and_record_after_a_reload_without_claiming_a_skip(self):
         d13 = flat(section(DECISIONS, "D13."))

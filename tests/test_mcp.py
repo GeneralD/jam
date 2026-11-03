@@ -84,6 +84,26 @@ class InitializeTest(unittest.TestCase):
         self.assertEqual(reply["result"]["serverInfo"], {"name": "jam", "version": VERSION})
         self.assertNotIn("instructions", reply["result"])
 
+    def test_the_result_carries_the_runtime_instructions_and_leaves_them_out_when_there_are_none(self):
+        # The guidance a session gets from the server itself; in the one foreground session checked on 2.1.309, a reload brought it (#31).
+        with_text = operations.Runtime(runtime_for().jam, runtime_for().whoami, lambda: "Use jam.\nSecond line.")
+        self.assertEqual(answer(request("initialize", {"protocolVersion": NEWEST}), with_text)["result"]["instructions"], "Use jam.\nSecond line.")
+        for none in (lambda: None, lambda: ""):
+            with self.subTest(none=none()):
+                without = operations.Runtime(runtime_for().jam, runtime_for().whoami, none)
+                self.assertNotIn("instructions", answer(request("initialize", {"protocolVersion": NEWEST}), without)["result"])
+
+    def test_the_instructions_are_asked_for_at_initialize_and_at_no_other_request(self):
+        asked = []
+        runtime = operations.Runtime(runtime_for().jam, runtime_for().whoami, lambda: asked.append(1) or "Use jam.")
+        for message in (request("ping"), request("tools/list"), request("server/discover"), tool_call("whoami", {})):
+            answer(message, runtime)
+        written = []
+        mcp.serve(runtime, iter([encoded(request("ping"))]), written.append, VERSION)  # nor when the server starts
+        self.assertEqual((asked, len(written)), ([], 1))
+        answer(request("initialize", {"protocolVersion": NEWEST}), runtime)
+        self.assertEqual(asked, [1])
+
 
 class MethodTest(unittest.TestCase):
     def test_ping_answers_an_empty_result(self):

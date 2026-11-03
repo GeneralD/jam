@@ -124,9 +124,14 @@ resume, clear or compact was not observed. For comparison, a print-mode
 ran the SessionStart hooks with `source: resume`, notice included. The tool
 descriptions carry the instructions, and the notice is what gives the model the
 exact command line of the CLI, with the data directory flag, which matters only
-when the MCP server is not available. That is one observation: other Claude Code
-versions, a foreground session and the Devin CLI were not checked, and the
-points still open are under "Plugin platform facts" in
+when the MCP server is not available. The MCP server's `initialize` reply now
+carries that text too, without the session id line, as its `instructions`
+(#31): in one foreground session on 2.1.309 (2026-11-03) it was in the model's
+context after `/reload-plugins` had loaded the plugin, and in a fresh session at
+its start, while the tools were listed as reachable through tool search only.
+Each of those is one observation: other Claude Code versions and the Devin
+CLI were not checked, nor were the hooks in a reloaded foreground session,
+and the points still open are under "Plugin platform facts" in
 [docs/decisions.md](docs/decisions.md).
 
 ## Status

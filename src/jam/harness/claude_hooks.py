@@ -77,10 +77,26 @@ def _env(env: Mapping[str, str]):
     return claude_env
 
 
+def notice_for(data_dir: Optional[str], session_id: object) -> str:
+    """The notice for a data directory and a session id: the one builder behind the hook and the MCP server (D12, #31)."""
+    return notice.session_notice(notice.invocation_prefix(str(PLUGIN_ROOT), data_dir), session_id)
+
+
 def notice_text(payload: dict[str, Any], env: Mapping[str, str]) -> str:
     """The notice for the session in `payload`; the source, cwd and transcript path are deliberately not read."""
-    prefix = notice.invocation_prefix(str(PLUGIN_ROOT), _env(env).data_dir(None, env))
-    return notice.session_notice(prefix, payload.get("session_id"))
+    return notice_for(_env(env).data_dir(None, env), payload.get("session_id"))
+
+
+def server_instructions(data_dir: Optional[str]) -> str:
+    """The MCP server's `instructions`: the notice without the session id line, from the same builder, so the two texts cannot drift (D12, #31).
+
+    `data_dir` is the directory the server resolved for itself (the flag, else the
+    variable), so a manual `--data-dir` start names the directory it uses; there is
+    no session id, because the one the server holds can be stale after `/clear`
+    (D12). It lives here, not in the composition root, because the text names
+    platform specifics, like the notice.
+    """
+    return notice_for(data_dir, None)
 
 
 def prune(payload: dict[str, Any], env: Mapping[str, str]) -> Optional[str]:
