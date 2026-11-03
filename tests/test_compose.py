@@ -13,7 +13,7 @@ from jam.errors import InvalidRequest, RegistryError
 from jam.registry import Record, Registry, spawned_marked
 
 from test_claude_harness import LIVE, SPAWN_STDOUT, STOPPED, FakeRunner, agents, ok
-from test_operations import lazy
+from test_operations import SESSION_ID, lazy
 
 compose = lazy("jam.compose")
 
@@ -106,6 +106,42 @@ class NothingCreatedTest(ComposeTestCase):
     def test_listing_never_creates_the_directory(self):
         compose.build_runtime(str(self.data), {}, runner=FakeRunner(agents(LIVE))).jam().list()
         self.assertFalse(self.data.exists())
+
+
+class ServerInstructionsTest(ComposeTestCase):
+    """The runtime hands the MCP server its `instructions`: the notice without the session id line, lazily, with no I/O (#31)."""
+
+    def test_they_are_the_notice_for_the_data_directory_the_server_was_given_without_a_session_id(self):
+        hooks = lazy("jam.harness.claude_hooks")
+        env = {DATA_VAR: str(self.data), "CLAUDE_CODE_SESSION_ID": SESSION_ID}
+        text = compose.build_runtime(None, env, runner=FakeRunner()).instructions()
+        self.assertEqual(text, hooks.notice_text({}, env))
+        self.assertIn(f"--data-dir {self.data}", text)
+        self.assertNotIn("This session id", text)
+        self.assertNotIn(SESSION_ID, text)
+
+    def test_building_and_asking_create_nothing(self):
+        runner = FakeRunner()
+        runtime = compose.build_runtime(None, {DATA_VAR: str(self.data)}, runner=runner)
+        runtime.instructions()
+        self.assertEqual(runner.calls, [])
+        self.assertFalse(self.data.exists())
+
+    def test_a_devin_environment_names_its_own_data_directory(self):
+        text = compose.build_runtime(None, {"AI_AGENT": "devin_cli", "PLUGIN_DATA": str(self.data)}, runner=FakeRunner()).instructions()
+        self.assertIn(f"--data-dir {self.data}", text)
+
+    def test_a_data_directory_flag_reaches_them_as_it_reaches_the_registry(self):
+        # A manual `python3 -I scripts/jam --data-dir DIR mcp` start must name the directory its tools use, not say it keeps no notes (#31).
+        text = compose.build_runtime(str(self.data), {}, runner=FakeRunner()).instructions()
+        self.assertIn(f"--data-dir {self.data}", text)
+        self.assertNotIn("jam keeps no notes", text)
+
+    def test_the_flag_wins_over_the_variable_in_them_as_in_the_commands(self):
+        other = self.root / "other"
+        text = compose.build_runtime(str(self.data), {DATA_VAR: str(other)}, runner=FakeRunner()).instructions()
+        self.assertIn(f"--data-dir {self.data}", text)
+        self.assertNotIn(str(other), text)
 
 
 class PluginVersionTest(ComposeTestCase):

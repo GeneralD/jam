@@ -100,6 +100,8 @@ one plugin. The AI is told the CLI's absolute path by a SessionStart hook
 (`additionalContext`, D13), so no PATH change is needed. In the one session
 checked, `/reload-plugins` did not bring the notice to a session that was
 already running when the plugin was installed (see "Plugin platform facts"). The
+MCP server's `instructions` repeat the notice without the session id line, and
+in one later check they arrived at a reload (D12, #31). The
 MCP server and the CLI are thin entry points over the same core; their shape is
 D12. The registry lives in the plugin data directory and is disposable (see
 "Plugin platform facts"). Its shape is D11.
@@ -354,12 +356,23 @@ pass).
   and how the supervisor was started was not recorded, so a machine whose
   supervisor starts with a narrower PATH may still fail. A failure reads "cannot
   run 'claude': executable not found"; add a binary override only if it happens.
+- **Server instructions.** The `initialize` reply carries `instructions`: the
+  session notice without the session id line, built by the hook's own function
+  from the plugin root and the data directory the server resolved for itself
+  (the flag, else the variable, like the commands), so the two texts cannot
+  drift (added on 2026-11-03, #31). The session id is left
+  out because the one the server holds can be stale after `/clear` (above). The
+  text is computed when `initialize` is answered and reads no file, so the
+  `server/discover` probe (see "Plugin platform facts") still costs nothing. It
+  is the guidance a session gets without the SessionStart hooks: in one
+  foreground session on Claude Code 2.1.309 (2026-11-03) the text was in the
+  model's context after `/reload-plugins` had loaded the plugin, and in a fresh
+  session at a normal start, while the five tools were reachable through tool
+  search only (see "MCP server instructions" under "Plugin platform facts").
 - **Deferred.** Self-stop refusal in code (the short id is not reliably known
   over MCP, so the `stop` description warns instead), a `prune` verb (a `remove`
-  one was added as `close`, D17), and the MCP extras (server instructions, pagination, structured output,
-  cancellation). Server instructions are the extra that could reach a session
-  that only reloaded the plugin, if Claude Code injects them at reload; that was
-  not checked (#24). The SessionStart wiring and the notice text that were
+  one was added as `close`, D17), and the other MCP extras (pagination,
+  structured output, cancellation). The SessionStart wiring and the notice text that were
   deferred here are D13, the foreign-repo guard (D6), deferred here as well, is
   D14, and the skill is D15.
 
@@ -479,7 +492,8 @@ through the same launcher, with `|| exit 0` appended; it is D14.
   the MCP tools. The text is ASCII for ASCII paths, byte-identical for identical
   inputs (so a re-injection is harmless), well below the platform's cap on
   injected context, and carries no working directory, transcript path or
-  exception text.
+  exception text. The MCP server's `instructions` are the same text without
+  the session id line, from the same function (D12, #31).
 - **Fail open.** A hook never blocks: it never exits with 2. Every failure it
   can handle ends in exit 0 and leaves one stderr line that names only the
   exception type. An unusable payload (empty, not yet written to a non-blocking
@@ -1371,12 +1385,38 @@ checked against the release notes for
   (D14, step 5), and whether the guard ran in the reloaded session was not
   checked; the notice is what gives the model the exact command line of the CLI,
   with the data directory flag, which matters only when the MCP server is not
-  available. Not checked: other Claude Code versions; a foreground session; the
-  hooks of a second running session, which was seen to start a jam MCP server
+  available. Not checked: other Claude Code versions; the hooks in a foreground
+  session; the hooks of a second running session, which was seen to start a jam MCP server
   after its own reload; whether a `clear` or a `compact` in a reloaded session
-  runs the hooks; the Devin CLI; and whether a reload re-injects the MCP server
-  `instructions`, which D12 defers and which would reach a reloaded session if
-  it did (#24).
+  runs the hooks; and the Devin CLI. Whether a reload injects the MCP server
+  `instructions` was checked on 2026-11-03, once the server returned some: it
+  did, in one foreground session (see "MCP server instructions" below, #31).
+- **MCP server instructions (observed on 2.1.309, 2026-11-03).** Two
+  interactive sessions (Sonnet 5.5, `auto` mode, in a private tmux server with
+  the `CLAUDE_*` variables of the parent session unset, started in a
+  subdirectory of the configuration directory) loaded a throwaway copy of the
+  plugin that carried only the MCP server, with the `instructions` of D12 and
+  no hooks or skills, installed at `local` scope from a marketplace on a local
+  path, under a plugin name with a hyphen in it. The copy was installed while
+  the first session was already running. Asked, without tools, which servers
+  had instructions in its system prompt, the model named four servers of the
+  owner's own setup and no jam one. After `/reload-plugins`, whose report listed
+  counts of plugins, skills, agents, hooks and MCP servers (read as totals here
+  and as differences in the bullet above; the two readings were not
+  reconciled), the same question got a fifth server, `plugin:<plugin>:jam`, and the model quoted
+  the first and the last of the text's seven lines and its command line
+  verbatim, with the copy's launcher path and the copy's data directory,
+  `<config>/plugins/data/<plugin>-<marketplace>`. It named the five tools as
+  `mcp__plugin_<plugin>_jam__<verb>`, the hyphen of the plugin name kept (as
+  documented under "Plugin MCP servers"), and as reachable through tool search
+  only. The second session, started after the install, had the same text and
+  the same deferred tools at its start. The installed `jam@jam` 0.1.0 plugin,
+  whose server returns no `instructions`, was loaded in both sessions too, with
+  its notice; the model listed no server for it, and the quoted command line,
+  which names the copy's launcher and not the installed one, is why the
+  evidence is the server text and not the notice. Not checked: other versions,
+  a background session, a plugin installed at user scope, the Devin CLI, and
+  whether the text is read again when a running server is restarted.
 - **Background sessions (verified by experiment).** The documentation is
   silent, so a throwaway probe plugin was loaded with `--plugin-dir` into both a
   print-mode run (control) and a `claude --bg` session. In both, the plugin's
@@ -1632,7 +1672,7 @@ permission mode other than `auto`, in a plain terminal or in a zellij pane
 ("Cross-session messages and permission modes" under "Plugin platform facts"),
 a resume under a different configuration directory ("Resuming a background
 session" under "Plugin platform facts"), and what `/reload-plugins` gives a
-running session beyond the one background session on 2.1.309 that was checked:
-other versions, a foreground session, a second session's hooks, and whether a
-reload re-injects the MCP server `instructions` ("`/reload-plugins` in a running
-session" under "Plugin platform facts").
+running session beyond the sessions on 2.1.309 that were checked: other
+versions, a second session's hooks, and whether the SessionStart hooks run in a
+reloaded foreground session (the MCP server `instructions` did arrive in one;
+see "MCP server instructions" under "Plugin platform facts").
