@@ -30,6 +30,8 @@ COMMANDS: Final = "Commands: spawn --cwd ABS_DIR [--name NAME] [--model M] [--ef
 QUOTE: Final = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
 MCP: Final = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
 NO_NOTES: Final = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
+# The reading the `whoami` tool description gives (D12), for a model that has the notice alone (#25).
+NULL_ID: Final = "A null id from whoami means no short id is known for this session, not that something failed: find your row in list by session_id, and if none matches, do not guess an id."
 DELEGATE: Final = (
     "A session started in another repository loads that repository's own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated with spawn and a complete brief."
@@ -110,5 +112,5 @@ def deny_reason(root: object) -> str:
 
 def session_notice(prefix: Optional[str], session_id: object) -> str:
     """The notice for one session: LF-joined lines, ASCII for ASCII paths, without a trailing newline."""
-    lines = (HEAD, running(prefix), COMMANDS, QUOTE, MCP, unnoted(prefix), identified(session_id), DELEGATE, PEERS)
+    lines = (HEAD, running(prefix), COMMANDS, QUOTE, MCP, unnoted(prefix), identified(session_id), NULL_ID, DELEGATE, PEERS)
     return "\n".join(line for line in lines if line)

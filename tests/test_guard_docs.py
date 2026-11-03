@@ -48,6 +48,7 @@ class DecisionsTest(unittest.TestCase):
         self.assertIn("Answered on 2026-10-22: the notice is approved as written, and the deny reason with one sentence added at its start", d14)
         self.assertIn('"This is a one-time notice from jam, not a failure."', d14)
         self.assertIn("because the model sees a denial labelled as a hook error (see \"Verified in real sessions\")", d14)
+        self.assertIn("The notice gained one sentence on 2026-11-03, on what a null `id` from `whoami` means (#25); merging that pull request is its approval.", d14)
         self.assertNotIn("once it is registered (default: no)", d14)
         self.assertIn("Answered on 2026-10-22: D14-7 and D14-8, each recorded under its number below. The others hold their defaults", d14)
 
