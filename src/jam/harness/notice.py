@@ -31,7 +31,7 @@ QUOTE: Final = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, 
 MCP: Final = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
 NO_NOTES: Final = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 # The reading the `whoami` tool description gives (D12), for a model that has the notice alone (#25).
-NULL_ID: Final = "A null id from whoami means no short id is known for this session, not that something failed: find your row in list by session_id, and if none matches, do not guess an id."
+NULL_ID: Final = "A null id from whoami does not mean that something failed: find your row in list by your current session_id, and if no row matches, the short id is unknown, so do not guess one."
 DELEGATE: Final = (
     "A session started in another repository loads that repository's own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated with spawn and a complete brief."
