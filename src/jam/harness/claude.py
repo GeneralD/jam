@@ -193,7 +193,7 @@ class ClaudeHarness:
         return self._spawned_from(result.stdout)
 
     def list(self, include_exited: bool = False, cwd: str | None = None) -> list[Session]:
-        """List sessions. Rows without a usable id are skipped; unknown keys are ignored."""
+        """List sessions. A row without a usable id is a foreground session and comes back with `id` None (#47); a row that names no session is skipped; unknown keys are ignored."""
         if cwd is not None and (not isinstance(cwd, str) or "\x00" in cwd):
             raise InvalidRequest(f"invalid cwd filter: {cwd!r}")
         args = [

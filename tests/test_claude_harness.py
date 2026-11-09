@@ -44,6 +44,16 @@ STOPPED = {
     "name": "worker-b",
     "state": "stopped",
 }
+# A foreground session: the plain listing shows it with no `id` and no `state` (observed on 2.1.309, 2026-10-28).
+INTERACTIVE = {
+    "pid": 5151,
+    "cwd": "/work/repo-f",
+    "kind": "interactive",
+    "startedAt": 1700000002000,
+    "sessionId": "ffff0000-0000-4000-8000-00000000000f",
+    "name": "owner-terminal",
+    "status": "idle",
+}
 SPAWN_STDOUT = (
     "backgrounded · \x1b[36mcccc3333\x1b[39m · worker-c\n"
     "\x1b[2m  claude agents             list sessions\x1b[22m\n"
@@ -263,6 +273,21 @@ class ListTest(unittest.TestCase):
         sessions = harness.list()
         self.assertEqual([s.id for s in sessions], ["eeee5555"])
         self.assertEqual((sessions[0].kind, sessions[0].state), ("something-new", "a-state-we-never-saw"))
+
+    def test_a_foreground_session_is_listed_read_only_with_no_id_and_no_state(self):
+        # #47: the row has no `id` and no `state`; it is listed as reported, so a peer can find its name, and nothing can stop it.
+        harness, _ = self.harness(agents(LIVE, INTERACTIVE))
+        background, foreground = harness.list()
+        self.assertEqual(background.id, "aaaa1111")
+        self.assertEqual((foreground.id, foreground.state), (None, None))
+        self.assertEqual(
+            (foreground.session_id, foreground.name, foreground.cwd, foreground.kind, foreground.status, foreground.pid),
+            (INTERACTIVE["sessionId"], "owner-terminal", "/work/repo-f", "interactive", "idle", 5151),
+        )
+
+    def test_a_row_that_names_no_session_is_still_skipped(self):
+        harness, _ = self.harness(agents({"no": "id"}, {"id": "", "name": "x"}, {"sessionId": "", "kind": "interactive"}, {"id": 7, "sessionId": 8}))
+        self.assertEqual(harness.list(), [])
 
     def test_unusable_output_is_a_harness_error(self):
         for result in (ok("not json"), ok('{"a": 1}'), RunResult(1, "", "denied")):

@@ -63,7 +63,7 @@ class ForegroundSessionTest(PinnedTest):
             (
                 "The rows of `claude agents --json` for background sessions have `id`, `sessionId`, `name`, `cwd`, `kind`, `startedAt`, `state`,",
                 "The help text says the plain listing also includes interactive sessions, and it did on 2.1.309 (2026-10-28): a foreground session is a row with `kind: interactive` and `pid`, `cwd`, `startedAt`, `sessionId`, `name` and `status`, but no `id` and no `state`.",
-                "A row once came back without `id`; it may have been such a row, but the cause was not established. The adapter skips a row without a usable id, so `list` and `stop` do not reach a foreground session, and the native `ListAgents` shows it by name.",
+                "A row once came back without `id`; it may have been such a row, but the cause was not established. Since 2026-11-09 (#47) the adapter lists a row without a usable `id` read-only when it carries a `sessionId`, with `id` and `state` null, so `list` shows a foreground session while `stop` and `close` do not reach it; a row with neither is dropped, and the native `ListAgents` shows a foreground session by name as before.",
                 "The `state` seen right after a stop was `stopped` in two runs and `done` in a third; on 2.1.309 (2026-10-28) it was `done` for two sessions that had finished a turn and `stopped` for two copies that never started one. It is treated as a pass-through string.",
             ),
             (
@@ -72,23 +72,27 @@ class ForegroundSessionTest(PinnedTest):
                 "most likely such a row",
                 "`claude agents --json` rows have `id`",
                 "`stopped` in two runs and `done` in a third, so it is treated as a pass-through string",
+                "The adapter skips a row without a usable id, so `list` and `stop` do not reach a foreground session",
             ),
         )
 
-    def test_d4_and_the_readme_say_a_foreground_row_has_no_id_and_is_not_managed(self):
+    def test_d4_and_the_readme_say_a_foreground_row_has_no_id_and_is_listed_but_not_managed(self):
         d4 = flat(section(DECISIONS, "D4."))
         self.assertHolds(
             d4,
             (
                 "(visible in `claude agents` with an `id`)",
-                f"A foreground session shows up there as a row without an `id`, which jam skips; in the one check made, a worker's message woke one all the same (see {MODES_FACT}).",
+                "A foreground session shows up there as a row without an `id`. Until 2026-11-09 jam skipped it; since then (#47) `list` shows it read-only, with `id` and `state` null and the rest as reported, so a session can find a foreground peer by `name` and message it, while `stop` and `close`, which take the short `id`, do not reach it: a foreground session is ended by the person at its keyboard.",
+                f"In the one check made, a worker's message woke one (see {MODES_FACT}).",
+                "A session that is not registered there is out of scope for `spawn`, `stop` and `close`, and the README states that requirement.",
+                "The owner chose on 2026-11-09 to show these rows by default rather than behind an `--include-foreground` flag, because finding a foreground peer is what they are for. A dedicated field was not added: a null `id` already says that `stop` and `close` cannot take the row, and the `list` description says so.",
             ),
-            ("(visible in `claude agents`)", "wakes it all the same"),
+            ("(visible in `claude agents`)", "wakes it all the same", "which jam skips;", "is out of scope for v1, and the README"),
         )
         self.assertHolds(
             flat(README),
-            ("so they show up in `claude agents` with an `id`. A foreground session shows up there without one, so jam does not list or stop it, although a worker's message woke one in the one check made (D2).",),
-            ("so they show up in `claude agents`. It does not",),
+            ("so they show up in `claude agents` with an `id`. A foreground session shows up there without one: `list` shows it read-only, with `id` and `state` null, so a peer can find its `name` and message it, and `stop` and `close` do not reach it (#47); a worker's message woke one in the one check made (D2).",),
+            ("so they show up in `claude agents`. It does not", "so jam does not list or stop it"),
         )
 
     def test_d11_sweeps_by_age_because_a_foreground_row_has_no_id(self):
@@ -230,14 +234,15 @@ class ClearTest(PinnedTest):
             ("by the next listing, a few seconds later",),
         )
 
-    def test_d12_says_the_fallback_finds_the_row_and_a_foreground_session_has_none(self):
+    def test_d12_says_the_fallback_finds_the_row_and_a_foreground_row_has_a_null_id(self):
         d12 = flat(section(DECISIONS, "D12."))
         self.assertHolds(
             d12,
             (
                 'The check has a cost. `/clear` gives a background session a new session id and its job directory keeps the old name (see "Session variables"), so from then on the command run through Bash reports `id` as null where it used to report the right one.',
                 'In the one check made (a background session attached in a terminal), the `list` row kept its `id` and held the new `sessionId` in the first listing read, about 4 seconds after the `/clear` was sent (see "Session variables"), so the fallback below found the row; the id an MCP server sees after `/clear` was not checked. Where no row matches, the `whoami` description tells the model that its short id is unknown, and since 2026-11-03 so does one sentence of the notice (D13, #25).',
-                "The foreground session tried (2026-10-28) had no row there: `claude agents` listed it without an `id`, which `list` skips, so for it the match finds nothing; it has no short id, and `whoami` leaves `id` null.",
+                "The foreground session tried (2026-10-28) was listed by `claude agents` without an `id`, which `list` skipped until 2026-11-09. Since then (#47) such a row is listed with `id` null, so the match should find it and say the same thing: it has no short id, and `whoami` leaves `id` null.",
+                "That a foreground session's `session_id` equals the `sessionId` of its row was not checked; where it does not, no row matches and the short id is unknown.",
             ),
             (
                 "is expected to keep the old name",
@@ -245,6 +250,8 @@ class ClearTest(PinnedTest):
                 "its short id stays unknown. Reading",
                 'The `list` row keeps its `id` and takes the new `sessionId`',
                 "A foreground session has no row there",
+                "which `list` skips, so for it the match finds nothing",
+                "the match finds its row with `id` null",
             ),
         )
 

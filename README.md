@@ -72,15 +72,17 @@ For any other edit it prints nothing, so the normal permission flow decides.
 
 Two harnesses are supported (D16). **Claude Code** sessions are the ones
 registered with its background session stack, so they show up in `claude
-agents` with an `id`. A foreground session shows up there without one, so jam
-does not list or stop it, although a worker's message woke one in the one check
-made (D2). **Devin CLI** sessions are the rows `devin -p` leaves in its session
-store: `spawn` launches a detached `devin -p`, `stop` ends the recorded process
-and removes the record, and messages go through `devin -r <id> -p`, a
-synchronous resume-and-answer. There is no session id in a Devin session's own
-environment, so `whoami` reports an error there instead of guessing. It does
-not depend on a terminal multiplexer. Other harnesses and terminals are out of
-scope for now; the adapter seams are there so they can be added when needed.
+agents` with an `id`. A foreground session shows up there without one: `list`
+shows it read-only, with `id` and `state` null, so a peer can find its `name`
+and message it, and `stop` and `close` do not reach it (#47); a worker's message
+woke one in the one check made (D2). **Devin CLI** sessions are the rows
+`devin -p` leaves in its session store: `spawn` launches a detached `devin -p`,
+`stop` ends the recorded process and removes the record, and messages go
+through `devin -r <id> -p`, a synchronous resume-and-answer. There is no
+session id in a Devin session's own environment, so `whoami` reports an error
+there instead of guessing. It does not depend on a terminal multiplexer. Other
+harnesses and terminals are out of scope for now; the adapter seams are there
+so they can be added when needed.
 
 ## Requirements
 

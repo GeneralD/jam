@@ -12,7 +12,7 @@ from jam.service import Listed, Listing, SpawnResult
 from jam.session import Spawned
 
 from test_operations import HINT, SESSION_ID, identity, lazy
-from test_service import session
+from test_service import FOREGROUND_SESSION_ID, foreground, session
 
 reporting = lazy("jam.reporting")
 
@@ -60,6 +60,13 @@ class RenderedTest(unittest.TestCase):
         self.assertEqual([row["spawned"] for row in found["sessions"]], [None, True, False])
         self.assertEqual(list(found["sessions"][0]), ["id", "session_id", "name", "cwd", "kind", "state", "status", "spawned"])
         self.assertEqual([row["status"] for row in found["sessions"]], ["busy", None, None])
+
+    def test_a_foreground_row_renders_null_id_and_state_with_the_rest_as_reported(self):
+        found = json.loads(reporting.rendered(Listing((Listed(foreground(), None),), None)))
+        (row,) = found["sessions"]
+        self.assertEqual(list(row), ["id", "session_id", "name", "cwd", "kind", "state", "status", "spawned"])
+        self.assertEqual((row["id"], row["state"], row["spawned"]), (None, None, None))
+        self.assertEqual((row["session_id"], row["name"], row["kind"], row["status"]), (FOREGROUND_SESSION_ID, "owner-terminal", "interactive", "idle"))
 
     def test_a_listing_carries_its_problem_and_may_be_empty(self):
         found = json.loads(reporting.rendered(Listing((), "cannot read the session registry")))

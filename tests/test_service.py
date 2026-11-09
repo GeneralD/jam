@@ -12,7 +12,7 @@ from jam.registry import Record, Registry, spawned_marked
 from jam.service import Jam, Listed, Listing, SpawnResult, failure_reason, joined
 from jam.session import NO_OPTIONS, Identity, Session, SpawnOptions, Spawned
 
-from test_claude_harness import DISCARD, LIVE, LOCKED, STOPPED, UNPUSHED, FakeRunner, agents, ok
+from test_claude_harness import DISCARD, INTERACTIVE, LIVE, LOCKED, STOPPED, UNPUSHED, FakeRunner, agents, ok
 from jam.harness.claude import RunResult
 
 SPAWNED = Spawned(id="cccc3333", name="worker-c")
@@ -20,6 +20,14 @@ SPAWNED = Spawned(id="cccc3333", name="worker-c")
 
 def session(session_id, **fields):
     return Session(id=session_id, session_id=session_id + "-full", name="n", cwd="/work/x", kind="background", state="done", **fields)
+
+
+FOREGROUND_SESSION_ID = "ffff0000-0000-4000-8000-00000000000f"
+
+
+def foreground(**fields):
+    """A foreground session as `list` shows it since #47: no short id and no state, the rest as reported."""
+    return Session(id=None, session_id=FOREGROUND_SESSION_ID, name="owner-terminal", cwd="/work/x", kind="interactive", state=None, status="idle", pid=5151, **fields)
 
 
 class FakeHarness:
@@ -235,6 +243,22 @@ class ListTest(ServiceTestCase):
         self.assertEqual([row.session.id for row in listing.sessions], ["aaaa1111"])
         self.assertIsInstance(listing, Listing)
 
+    def test_a_foreground_row_gets_no_note_and_the_registry_is_not_asked_about_it(self):
+        # #47: a note is keyed by the short id, so a row without one has none, and none is looked up; `spawned` stays unknown.
+        stub = StubRegistry()
+        listing = Jam(FakeHarness([session("aaaa1111"), foreground()]), stub).list()
+        self.assertEqual([row.session.id for row in listing.sessions], ["aaaa1111", None])
+        self.assertEqual([row.record for row in listing.sessions], [None, None])
+        self.assertEqual(stub.records, ["aaaa1111"])
+        self.assertIsNone(listing.problem)
+
+    def test_a_foreground_row_is_listed_with_a_real_registry_and_the_real_claude_harness(self):
+        harness = ClaudeHarness(claude_bin="claude", runner=FakeRunner(agents(INTERACTIVE, LIVE)))
+        listing = Jam(harness, Registry(self.data)).list()
+        self.assertEqual([row.session.id for row in listing.sessions], [None, "aaaa1111"])
+        self.assertEqual(listing.sessions[0].session.name, "owner-terminal")
+        self.assertIsNone(listing.problem)
+
 
 class StopTest(ServiceTestCase):
     def test_stop_delegates_and_never_touches_the_registry(self):
@@ -316,6 +340,12 @@ class CloseTest(ServiceTestCase):
         harness = FakeHarness([session("aaaa1111")])
         Jam(harness, StubRegistry()).close("aaaa1111", caller=Identity("cccc3333-full", "cccc3333"))
         self.assertEqual((harness.list_calls, harness.stop_calls, harness.remove_calls), ([], ["aaaa1111"], ["aaaa1111"]))
+
+    def test_a_foreground_caller_is_never_the_session_being_closed(self):
+        # #47: a foreground caller has no short id and its own row has `id` None, so no short id is its own; the close goes ahead.
+        harness = FakeHarness([foreground(), session("aaaa1111")])
+        Jam(harness, StubRegistry()).close("aaaa1111", caller=Identity(FOREGROUND_SESSION_ID, None))
+        self.assertEqual(harness.stop_calls, ["aaaa1111"])
 
     def test_a_caller_without_a_short_id_whose_row_is_another_closes_the_session(self):
         harness = FakeHarness([session("aaaa1111"), session("cccc3333")])

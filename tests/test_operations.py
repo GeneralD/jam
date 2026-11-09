@@ -22,7 +22,7 @@ from jam.service import Jam
 from jam.session import SpawnOptions
 
 from test_claude_harness import DISCARD, FakeRunner
-from test_service import FakeHarness, StubRegistry, session
+from test_service import FakeHarness, StubRegistry, foreground, session
 
 SESSION_ID = "aaaa1111-0000-4000-8000-000000000001"
 HINT = "a session may have started"
@@ -357,6 +357,26 @@ class ListOperationTest(unittest.TestCase):
         outcome = run_operation("list", {}, harness=FakeHarness(list_error=HarnessError("down")))
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.text, "down")
+
+    def test_a_foreground_row_comes_back_with_null_id_and_state_and_spawned_unknown(self):
+        registry = Registry(self.root / "data")
+        registry.update("aaaa1111", spawned_marked)
+        outcome = run_operation("list", {}, harness=FakeHarness([foreground(), session("aaaa1111")]), registry=registry)
+        self.assertTrue(outcome.ok)
+        first, second = payload(outcome)["sessions"]
+        self.assertEqual((first["id"], first["state"], first["spawned"], first["kind"], first["name"]), (None, None, None, "interactive", "owner-terminal"))
+        self.assertEqual((second["id"], second["spawned"]), ("aaaa1111", True))
+        self.assertIsNone(payload(outcome)["problem"])
+
+    def test_the_list_description_says_what_a_null_id_means_and_whoami_knows_the_foreground_case(self):
+        # #47: a model reading the tool list must not take a null `id` for a failure, nor pass it to stop or close.
+        description = operations.lookup("list").description
+        for phrase in ("foreground session", "`id` null", "`state` null", "`name`", "not an error", "`stop`", "`close`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, description)
+        whoami = operations.lookup("whoami").description
+        self.assertIn("if no row matches, your short id is unknown, so do not guess it", whoami)
+        self.assertIn("`id` is null means this is a foreground session, which has no short id", whoami)
 
 
 class CloseOperationTest(unittest.TestCase):
