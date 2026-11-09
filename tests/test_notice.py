@@ -32,6 +32,7 @@ QUOTE = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spac
 MCP = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
 NO_NOTES = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 SESSION_LINE = f"This session id: {SESSION_ID}"
+NULL_ID = "A null id from whoami does not mean that something failed: find your row in list by your current session_id, and if no row matches, the short id is unknown, so do not guess one."
 DELEGATE = (
     "A session started in another repository loads that repository's own CLAUDE.md, rules, skills and hooks, "
     "so work there is best delegated with spawn and a complete brief."
@@ -43,10 +44,10 @@ def joined(*lines):
     return "\n".join(lines)
 
 
-SAMPLE = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_DATA_DIR = joined(HEAD, RUN_WITHOUT_DATA, COMMANDS, QUOTE, MCP, NO_NOTES, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_COMMAND_LINE = joined(HEAD, RUN_UNAVAILABLE, COMMANDS, QUOTE, MCP, SESSION_LINE, DELEGATE, PEERS)
-WITHOUT_SESSION_ID = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, DELEGATE, PEERS)
+SAMPLE = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, SESSION_LINE, NULL_ID, DELEGATE, PEERS)
+WITHOUT_DATA_DIR = joined(HEAD, RUN_WITHOUT_DATA, COMMANDS, QUOTE, MCP, NO_NOTES, SESSION_LINE, NULL_ID, DELEGATE, PEERS)
+WITHOUT_COMMAND_LINE = joined(HEAD, RUN_UNAVAILABLE, COMMANDS, QUOTE, MCP, SESSION_LINE, NULL_ID, DELEGATE, PEERS)
+WITHOUT_SESSION_ID = joined(HEAD, RUN, COMMANDS, QUOTE, MCP, NULL_ID, DELEGATE, PEERS)
 
 # Paths the prefix must refuse: relative, empty, wrong type, a control character, too long, not encodable.
 UNUSABLE = (None, "", "relative/dir", "./x", "/a\nb", "/a\rb", "/a\x00b", "/a\x7fb", "/a\tb", "/" + "a" * 1024, 42, b"/abs", "/a\udcffb")
@@ -100,9 +101,26 @@ class TextTest(unittest.TestCase):
     def test_the_sample_text_is_exact(self):
         self.assertEqual(text_for(), SAMPLE)
 
-    def test_the_text_has_no_trailing_newline_and_eight_lines(self):
+    def test_the_text_has_no_trailing_newline_and_nine_lines(self):
         self.assertFalse(text_for().endswith("\n"))
-        self.assertEqual(len(text_for().split("\n")), 8)
+        self.assertEqual(len(text_for().split("\n")), 9)
+
+    def test_a_null_whoami_id_is_explained_right_after_the_session_id_line_and_without_one_too(self):
+        # What the `whoami` tool description says a null id means (D12), restated so a model with the notice alone has it (#25):
+        # the short id is unknown only when no `list` row matches, since after `/clear` the row still holds it. The phrases are checked
+        # on the product text; the exact-text test above would catch a changed word, this one says which words matter.
+        lines = text_for().split("\n")
+        self.assertEqual(lines[lines.index(SESSION_LINE) + 1], NULL_ID)
+        self.assertIn(NULL_ID, text_for(session=None))
+        produced = text_for(session=None).split("\n")[5]
+        for phrase in ("does not mean that something failed", "by your current session_id", "if no row matches, the short id is unknown", "do not guess"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, produced)
+        self.assertNotIn("no short id is known for this session", produced)
+        description = operations.lookup("whoami").description
+        for phrase in ("`session_id`", "if no row matches", "do not guess"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, description)
 
     def test_the_placeholders_are_told_to_be_quoted_because_the_model_writes_the_command(self):
         self.assertIn("as one shell word", text_for())

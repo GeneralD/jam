@@ -116,7 +116,7 @@ class ForegroundSessionTest(PinnedTest):
                 "The model (Sonnet 5.5 at `xhigh` effort, in `auto` mode) was told to rely only on the notice (no MCP tool, no filesystem search) and to run `whoami` from the shell, and its first tool call was `whoami` through Bash in the form the notice gives.",
                 "So the run shows that the model copied the form the notice gives, not that the notice made it choose the command.",
                 "`id` was null, as D12 says it is in a foreground session: `CLAUDE_JOB_DIR` was unset there, as in a terminal outside any background session.",
-                "The model's own explanation of the null was wrong (it said the session was not started by `spawn`), and the notice does not explain a null `id`; the `whoami` tool description does.",
+                "The model's own explanation of the null was wrong (it said the session was not started by `spawn`), and the notice did not then explain a null `id`; only the `whoami` tool description did, until one sentence on it was added to the notice (#25).",
                 "It was one run, so it does not show that a model left to choose would use the notice unprompted.",
             ),
             (
@@ -236,7 +236,7 @@ class ClearTest(PinnedTest):
             d12,
             (
                 'The check has a cost. `/clear` gives a background session a new session id and its job directory keeps the old name (see "Session variables"), so from then on the command run through Bash reports `id` as null where it used to report the right one.',
-                'In the one check made (a background session attached in a terminal), the `list` row kept its `id` and held the new `sessionId` in the first listing read, about 4 seconds after the `/clear` was sent (see "Session variables"), so the fallback below found the row; the id an MCP server sees after `/clear` was not checked. Where no row matches, the `whoami` description tells the model that its short id is unknown.',
+                'In the one check made (a background session attached in a terminal), the `list` row kept its `id` and held the new `sessionId` in the first listing read, about 4 seconds after the `/clear` was sent (see "Session variables"), so the fallback below found the row; the id an MCP server sees after `/clear` was not checked. Where no row matches, the `whoami` description tells the model that its short id is unknown, and since 2026-11-03 so does one sentence of the notice (D13, #25).',
                 "The foreground session tried (2026-10-28) had no row there: `claude agents` listed it without an `id`, which `list` skips, so for it the match finds nothing; it has no short id, and `whoami` leaves `id` null.",
             ),
             (

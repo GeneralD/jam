@@ -297,7 +297,8 @@ pass).
   seconds after the `/clear` was sent (see "Session variables"), so the fallback
   below found the row; the id an MCP server sees after `/clear` was not checked.
   Where no row matches, the `whoami` description tells the model that its short
-  id is unknown. A wrong id is worse
+  id is unknown, and since 2026-11-03 so does one sentence of the notice (D13,
+  #25). A wrong id is worse
   than none: the `stop`
   description relies on it to keep a session from stopping itself, and a peer
   given it could pass it to `stop`. If a later version drops the relation, `id`
@@ -418,7 +419,8 @@ through the same launcher, with `|| exit 0` appended; it is D14.
 - **`notice`** has no matcher, so it fires again on resume, clear, compact and
   fork, which also re-injects the notice after a compaction. It prints the text
   that tells the model how to run jam: `python3 -I <root>/scripts/jam --data-dir
-  <dir> COMMAND`, the commands, the MCP tool names, the session's own id,
+  <dir> COMMAND`, the commands, the MCP tool names, the session's own id, what
+  a null `id` from `whoami` means (the reading of D12, added on 2026-11-03, #25),
   and the delegation rationale of D6 without mentioning the guard (D14-7).
 - **`prune`** has the matcher `startup`, because it would otherwise run again on
   every resume, clear and compact. It calls `Registry.prune`, then sweeps the
@@ -547,7 +549,8 @@ through the same launcher, with `|| exit 0` appended; it is D14.
   as D12 says it is in a foreground session: `CLAUDE_JOB_DIR` was unset there,
   as in a terminal outside any background session. The model's own explanation
   of the null was wrong (it said the session was not started by `spawn`), and
-  the notice does not explain a null `id`; the `whoami` tool description does.
+  the notice did not then explain a null `id`; only the `whoami` tool
+  description did, until one sentence on it was added to the notice (#25).
   It was one run, so it does not show that a model left to choose would use the
   notice unprompted.
 
@@ -879,7 +882,9 @@ model reads (D14-8). D6 states the intent; this entry is how it works.
      and the deny reason with one sentence added at its start, "This is a
      one-time notice from jam, not a failure.", because the model sees a denial
      labelled as a hook error (see "Verified in real sessions"); the rest of the
-     reason was unchanged until D15-2 added one sentence on 2026-10-23.
+     reason was unchanged until D15-2 added one sentence on 2026-10-23. The
+     notice gained one sentence on 2026-11-03, on what a null `id` from
+     `whoami` means (#25); merging that pull request is its approval.
   9. Authorisation (granted) for the live checks listed under "Verified in real
      sessions", and for the check of `claude --bg --session-id` in "Plugin
      platform facts". The `--session-id` check was answered on 2026-10-21: the
