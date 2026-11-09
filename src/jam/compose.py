@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Final, Optional
 
 from .errors import InvalidRequest, RegistryError
-from .harness import claude_env, devin_env
+from .harness import claude_env, claude_hooks, devin_env
 from .harness.claude import ClaudeHarness, Runner
 from .harness.devin import DevinHarness
 from .operations import Runtime
@@ -68,12 +68,20 @@ def _harness_parts(env: Mapping[str, str]) -> tuple:
 
 
 def build_runtime(data_dir_flag: Optional[str], env: Mapping[str, str], runner: Optional[Runner] = None) -> Runtime:
-    """A Runtime over the real adapter. `runner` is the seam that keeps tests from starting sessions."""
+    """A Runtime over the real adapter. `runner` is the seam that keeps tests from starting sessions.
+
+    The MCP server's `instructions` are the session notice without the session id
+    line, from the hook's own function and for the data directory resolved here,
+    so the two texts cannot drift; in the one foreground session checked on
+    Claude Code 2.1.309, a session that had only reloaded the plugin had the
+    text (D12, #31).
+    """
     env_module, harness_type = _harness_parts(env)
     directory = env_module.data_dir(data_dir_flag, env)
     return Runtime(
         lambda: Jam(harness_type(runner=runner), registry_for(directory), Tickets(directory)),
         lambda: env_module.identity(env),
+        lambda: claude_hooks.server_instructions(directory),
     )
 
 

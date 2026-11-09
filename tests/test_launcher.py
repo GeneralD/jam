@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -147,6 +148,22 @@ class RunTest(LauncherTestCase):
         replies = [json.loads(line) for line in proc.out.splitlines()]
         self.assertEqual([reply["id"] for reply in replies], [1, 2])
         self.assertEqual([tool["name"] for tool in replies[1]["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
+        # The server's own guidance: the notice without a session id, naming this launcher; the stripped environment has no data directory (#31).
+        instructions = replies[0]["result"]["instructions"]
+        self.assertTrue(instructions.startswith("jam lets this session"))
+        self.assertIn(f"python3 -I {shlex.quote(str(LAUNCHER))} COMMAND", instructions)
+        self.assertIn("jam keeps no notes", instructions)
+        self.assertNotIn("This session id", instructions)
+
+    def test_mcp_started_with_a_data_directory_flag_names_that_directory_in_its_instructions(self):
+        # A manual start passes the flag before the command; the text names the directory the tools use, quoted as the notice quotes it (#31).
+        flagged = self.root / "flag dir"
+        data = "".join(json.dumps(message) + "\n" for message in (INITIALIZE, INITIALIZED)).encode("utf-8")
+        proc = self.jam("--data-dir", str(flagged), "mcp", stdin=data)
+        self.assertExit(proc, 0)
+        instructions = json.loads(proc.out.splitlines()[0])["result"]["instructions"]
+        self.assertIn(f"python3 -I {shlex.quote(str(LAUNCHER))} --data-dir {shlex.quote(str(flagged))} COMMAND", instructions)
+        self.assertNotIn("jam keeps no notes", instructions)
 
     def test_decoy_modules_and_a_hostile_pythonpath_are_ignored(self):
         decoy, hostile = self.root / "decoy", self.root / "hostile"

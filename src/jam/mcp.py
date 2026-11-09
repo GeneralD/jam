@@ -88,13 +88,14 @@ def envelope(raw: Union[bytes, str]) -> Optional[tuple[Union[str, int, float], s
     return request_id, message["method"], message.get("params", {})
 
 
-def initialized(params: dict[str, Any], version: str) -> dict[str, Any]:
-    """Echo the client's protocol version when it is a supported one, else offer the newest."""
+def initialized(params: dict[str, Any], version: str, instructions: Optional[str]) -> dict[str, Any]:
+    """Echo the client's protocol version when it is a supported one, else offer the newest; carry the server's `instructions` when there are any."""
     requested = params.get("protocolVersion")
     return {
         "protocolVersion": requested if requested in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
         "capabilities": {"tools": {}},
         "serverInfo": {"name": SERVER_NAME, "version": version},
+        **({"instructions": instructions} if isinstance(instructions, str) and instructions else {}),
     }
 
 
@@ -116,7 +117,7 @@ def tool_result(runtime: operations.Runtime, params: dict[str, Any]) -> dict[str
 
 # The methods served, each as (runtime, params, version) -> result. Every one takes an object for params, or none.
 HANDLERS: Final = {
-    "initialize": lambda runtime, params, version: initialized(params, version),
+    "initialize": lambda runtime, params, version: initialized(params, version, runtime.instructions()),
     "ping": lambda runtime, params, version: {},
     "tools/list": lambda runtime, params, version: {"tools": [tool(op) for op in operations.OPERATIONS]},
     "tools/call": lambda runtime, params, version: tool_result(runtime, params),
