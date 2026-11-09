@@ -106,8 +106,8 @@ class TextTest(unittest.TestCase):
         self.assertEqual(len(text_for().split("\n")), 9)
 
     def test_a_null_whoami_id_is_explained_right_after_the_session_id_line_and_without_one_too(self):
-        # The reading the `whoami` tool description gives (D12), so a model with the notice alone has it (#25): the short id is
-        # unknown only when no `list` row matches, since after `/clear` the row still holds it (D12). The phrases are checked
+        # What the `whoami` tool description says a null id means (D12), restated so a model with the notice alone has it (#25):
+        # the short id is unknown only when no `list` row matches, since after `/clear` the row still holds it. The phrases are checked
         # on the product text; the exact-text test above would catch a changed word, this one says which words matter.
         lines = text_for().split("\n")
         self.assertEqual(lines[lines.index(SESSION_LINE) + 1], NULL_ID)
