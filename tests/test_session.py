@@ -52,9 +52,18 @@ class ForegroundRowTest(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertIsNone(Session.from_agent(row))
 
-    def test_a_background_row_keeps_its_state_and_a_non_string_state_is_none(self):
-        self.assertEqual(Session.from_agent({"id": "aaaa1111", "state": "working"}).state, "working")
-        self.assertIsNone(Session.from_agent({"id": "aaaa1111", "state": 3}).state)
+    def test_a_background_row_passes_any_string_state_through_and_a_missing_or_non_string_one_is_none(self):
+        for state in ("working", ""):
+            with self.subTest(state=state):
+                self.assertEqual(Session.from_agent({"id": "aaaa1111", "state": state}).state, state)
+        for row in ({"id": "aaaa1111", "state": 3}, {"id": "aaaa1111"}):
+            with self.subTest(row=row):
+                self.assertIsNone(Session.from_agent(row).state)
+
+    def test_a_foreground_row_has_a_null_state_even_when_its_row_reports_one(self):
+        """D4 promises `state` null for a foreground row, which the background stack does not hold."""
+        row = {"sessionId": "ffff0000-0000-4000-8000-00000000000f", "state": "working"}
+        self.assertIsNone(Session.from_agent(row).state)
 
 
 if __name__ == "__main__":

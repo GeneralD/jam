@@ -69,7 +69,7 @@ class Session:
     name: str
     cwd: str
     kind: str  # passed through; new kinds must not break listing
-    state: str | None  # passed through, not an enum on purpose; None where the harness shows none (a foreground session)
+    state: str | None  # passed through, not an enum on purpose; None where the row has no string state, and for a foreground session
     status: str | None = None  # absent for sessions that are no longer running
     pid: int | None = None
     started_at: int | None = None
@@ -82,7 +82,9 @@ class Session:
         with a `sessionId` is a foreground session, which the listing shows with no
         `id` and no `state` (observed on 2.1.309): it comes back read-only, with
         `id` and `state` None and the rest as reported, so a peer can find its
-        name (#47). A row with neither names nothing and is dropped.
+        name (#47). Its `state` is None even if a row reports one, since the
+        background stack whose state that is does not hold the session. A row
+        with neither names nothing and is dropped.
         """
         short, session_id = _text(row, "id"), _text(row, "sessionId")
         if not short and not session_id:
@@ -94,7 +96,7 @@ class Session:
             name=_text(row, "name"),
             cwd=_text(row, "cwd"),
             kind=_text(row, "kind"),
-            state=_text(row, "state") or None,
+            state=row["state"] if short and isinstance(row.get("state"), str) else None,
             status=row["status"] if isinstance(row.get("status"), str) else None,
             pid=pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
             started_at=started if isinstance(started, int) and not isinstance(started, bool) else None,
