@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from functools import reduce
 from pathlib import Path
 from typing import Any, Final, Optional
@@ -24,10 +25,12 @@ MAX_TAIL_BYTES: Final = 16 * 1024 * 1024
 NO_TRANSCRIPT: Final = "no transcript was found for this session"
 UNREADABLE: Final = "the transcript of this session could not be read"
 _NO_START: Final = Turn(None, None, "", (), None)
-# What the harness wrote into the conversation without an origin starts with a tag or an interrupt marker; a peer's message
-# without one starts with its wrapper (both seen up to 2.1.309).
-_HARNESS_MARKS: Final = ("<", "[Request interrupted by user")
+# What the harness wrote into the conversation without an origin opens with one of its tags (those seen from 2.1.159 to
+# 2.1.309) or an interrupt marker, and a peer's message without one with its wrapper. Any other text is a prompt, a tag or not.
+_HARNESS_TAGS: Final = ("command-name", "command-message", "local-command-stdout", "bash-input", "bash-stdout", "bash-stderr")
+_HARNESS_MARKS: Final = (*(f"<{tag}>" for tag in _HARNESS_TAGS), "[Request interrupted by user")
 _PEER_WRAPPER: Final = "Another Claude session sent"
+_MESSAGES: Final = ("user", "assistant")
 
 
 def path_of(config_dir: str, session_id: str) -> Optional[Path]:
@@ -80,11 +83,14 @@ def turns_of(found: Iterable[Mapping[str, Any]]) -> tuple[Turn, ...]:
 
 
 def _advanced(turns: tuple[Turn, ...], record: Mapping[str, Any]) -> tuple[Turn, ...]:
+    """`turns` after one more record: a prompt starts a turn, an answer extends the last one, any other message only times it."""
     started = _started(record)
     if started is not None:
         return (*turns, started)
-    if record.get("type") != "assistant" or record.get("isSidechain"):
+    if record.get("type") not in _MESSAGES or record.get("isSidechain"):
         return turns
+    if record.get("type") == "user":
+        return (*turns[:-1], _timed(turns[-1], record)) if turns else turns
     return (*turns[:-1], _extended(turns[-1] if turns else _NO_START, record))
 
 
@@ -150,8 +156,22 @@ def _extended(turn: Turn, record: Mapping[str, Any]) -> Turn:
         turn.prompt,
         "\n\n".join(filter(None, (turn.reply, *said))),
         tuple(dict.fromkeys((*turn.tools, *names))),
-        _timestamp(record) or turn.at,
+        _later(turn.at, _timestamp(record)),
     )
+
+
+def _timed(turn: Turn, record: Mapping[str, Any]) -> Turn:
+    """`turn` with the time of one more of its messages, which says nothing else jam keeps (a tool result, a note)."""
+    return replace(turn, at=_later(turn.at, _timestamp(record)))
+
+
+def _later(at: Optional[str], stamp: Optional[str]) -> Optional[str]:
+    """The later of two times, not the one written last: a record can follow one with a later time.
+
+    Claude Code writes every time in one fixed-width UTC form, so the greater
+    string is the later time.
+    """
+    return max(filter(None, (at, stamp)), default=None)
 
 
 def _content(record: Mapping[str, Any]) -> object:

@@ -1286,7 +1286,8 @@ question to its context, or wait for its report.
 - **The verb.** `peek ID [--turns N]` returns the session's row and its last
   turns, oldest first. A turn starts with a prompt the session was given, typed
   by the owner or sent by a peer, and holds what the session answered, the
-  names of the tools it used, and the time of its last record. Answers read
+  names of the tools it used, and the time of the latest message in it, a
+  tool's result included. Answers read
   before the first prompt form a turn whose start is out of reach. Nothing is
   sent to the session and nothing is written.
 - **Wrap, do not replace.** `claude logs` prints what the session's terminal
@@ -1301,8 +1302,11 @@ question to its context, or wait for its report.
   secret, and the caller asked where the session got to, not for its data.
   What the harness writes into the conversation (task notifications, compaction
   summaries, a subagent's records or its hand-back, a command's output, an
-  interrupt marker) starts no turn. A message from a peer shows its body,
-  without the wrapper the harness puts around it.
+  interrupt marker) starts no turn. A record without an `origin` is the
+  harness's own only when it opens with one of the tags the harness writes
+  there (seen from 2.1.159 to 2.1.309) or with an interrupt marker; any other
+  text is a prompt, even one that opens with a tag. A message from a peer shows
+  its body, without the wrapper the harness puts around it.
 - **Messages to a busy session.** A prompt typed, or a peer's message that
   arrives, while the session is working is written as an attachment of type
   `queued_command`, not as a prompt; it starts a turn too, and the answers

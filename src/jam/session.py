@@ -111,7 +111,7 @@ class Turn:
     prompt: str | None  # None where the start is out of reach
     reply: str  # the session's text answers, joined; "" when it has said nothing yet
     tools: tuple[str, ...]  # the names of the tools it used, each once, in the order first used
-    at: str | None  # the timestamp of the turn's last record, as the harness wrote it
+    at: str | None  # the latest timestamp among the turn's messages, a tool result included, as the harness wrote it
 
 
 @dataclass(frozen=True)

@@ -98,7 +98,7 @@ class TurnsTest(unittest.TestCase):
             human("a note", isMeta=True),
             human("from a subagent", isSidechain=True),
             {"type": "user", "origin": {"kind": "task-notification"}, "message": {"content": "<task-notification>x</task-notification>"}},
-            old_prompt("<local-command-stdout>x</local-command-stdout>"),
+            *(old_prompt(f"  <{tag}>x</{tag}>") for tag in ("command-name", "command-message", "local-command-stdout", "bash-input", "bash-stdout", "bash-stderr")),
             old_prompt("   "),
             human([text("[Request interrupted by user]")], origin=None),
             old_prompt([text("[Request interrupted by user for tool use]")]),
@@ -147,6 +147,12 @@ class TurnsTest(unittest.TestCase):
         (found,) = turns(old_prompt("do it"))
         self.assertEqual((found.origin, found.prompt), ("user", "do it"))
 
+    def test_a_prompt_without_origin_that_opens_with_a_tag_of_its_own_counts(self):
+        for prompt in ("<component>please update it</component>", "<command-names> are listed here", "<bash-input"):
+            with self.subTest(prompt=prompt):
+                (found,) = turns(old_prompt(prompt))
+                self.assertEqual((found.origin, found.prompt), ("user", prompt))
+
     def test_a_typed_slash_command_is_a_turn_in_the_form_the_transcript_holds(self):
         (found,) = turns(human("<command-name>/go</command-name>"))
         self.assertEqual(found.prompt, "<command-name>/go</command-name>")
@@ -172,6 +178,35 @@ class TurnsTest(unittest.TestCase):
     def test_a_timestamp_that_is_not_text_is_none_and_keeps_the_last_good_one(self):
         (found,) = turns(human("do it", at=5), assistant(text("x"), at=AT), assistant(text("y"), at=None))
         self.assertEqual(found.at, AT)
+
+    def test_the_time_is_that_of_the_latest_message_in_the_turn_a_tool_result_included(self):
+        finished = "2026-11-09T10:30:00.000Z"
+        notified = {"type": "user", "origin": {"kind": "task-notification"}, "message": {"content": "<task-notification>x</task-notification>"}, "timestamp": finished}
+        for last in ({**tool_result(), "timestamp": finished}, notified, human("a note", at=finished, isMeta=True)):
+            with self.subTest(last=last):
+                found = turns(human("do it"), assistant(tool("Bash")), last, human("next", at="2026-11-09T11:00:00.000Z"))
+                self.assertEqual(found[0].at, finished)
+
+    def test_a_message_written_later_with_an_earlier_time_does_not_move_the_time_back(self):
+        (found,) = turns(human("do it"), assistant(text("x"), at=LATER), {**tool_result(), "timestamp": AT}, assistant(text("y"), at=AT))
+        self.assertEqual(found.at, LATER)
+
+    def test_records_that_are_not_the_sessions_own_messages_leave_the_time_alone(self):
+        later = "2026-11-09T11:00:00.000Z"
+        others = (
+            {"type": "pr-link", "timestamp": later},
+            {"type": "system", "subtype": "away_summary", "timestamp": later},
+            {**queued("x", kind="task-notification"), "timestamp": later},
+            {**tool_result(), "isSidechain": True, "timestamp": later},
+            {**assistant(text(CARRIED)), "isSidechain": True, "timestamp": later},
+        )
+        for other in others:
+            with self.subTest(other=other):
+                (found,) = turns(human("do it"), assistant(text("x")), other)
+                self.assertEqual(found.at, LATER)
+
+    def test_a_message_before_any_turn_starts_none(self):
+        self.assertEqual(turns(tool_result(), human("a note", isMeta=True)), ())
 
 
 class FileCase(unittest.TestCase):

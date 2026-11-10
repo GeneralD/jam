@@ -61,6 +61,17 @@ class DecisionsTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.d20)
 
+    def test_d20_says_what_a_turns_time_is_and_how_a_harness_note_without_an_origin_is_known(self):
+        for phrase in (
+            "and the time of the latest message in it, a tool's result included.",
+            "A record without an `origin` is the harness's own only when it opens with one of the tags the harness "
+            "writes there (seen from 2.1.159 to 2.1.309) or with an interrupt marker; any other text is a prompt, even "
+            "one that opens with a tag.",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.d20)
+        self.assertNotIn("the time of its last record", self.d20)
+
     def test_d4_and_d12_name_the_verb(self):
         text = flat(DECISIONS)
         for removed in (
