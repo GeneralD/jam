@@ -64,30 +64,39 @@ class Identity:
 
 @dataclass(frozen=True)
 class Session:
-    id: str  # the short id every management command takes
+    id: str | None  # the short id every management command takes; None for a foreground session, which none of them reaches (#47)
     session_id: str  # the full session id, as hooks report it
     name: str
     cwd: str
     kind: str  # passed through; new kinds must not break listing
-    state: str  # passed through; not an enum on purpose
+    state: str | None  # passed through, not an enum on purpose; None where the row has no string state, and for a foreground session
     status: str | None = None  # absent for sessions that are no longer running
     pid: int | None = None
     started_at: int | None = None
 
     @classmethod
     def from_agent(cls, row: dict[str, Any]) -> Session | None:
-        """Build a Session from one `agents --json` row, or None if it has no usable id."""
-        session_id = row.get("id")
-        if not isinstance(session_id, str) or not session_id:
+        """Build a Session from one `agents --json` row, or None if the row names no session.
+
+        A row with a usable `id` is a background session. A row without one but
+        with a `sessionId` is a foreground session, which the listing shows with no
+        `id` and no `state` (observed on 2.1.309): it comes back read-only, with
+        `id` and `state` None and the rest as reported, so a peer can find its
+        name (#47). Its `state` is None even if a row reports one, since the
+        background stack whose state that is does not hold the session. A row
+        with neither names nothing and is dropped.
+        """
+        short, session_id = _text(row, "id"), _text(row, "sessionId")
+        if not short and not session_id:
             return None
         pid, started = row.get("pid"), row.get("startedAt")
         return cls(
-            id=session_id,
-            session_id=_text(row, "sessionId"),
+            id=short or None,
+            session_id=session_id,
             name=_text(row, "name"),
             cwd=_text(row, "cwd"),
             kind=_text(row, "kind"),
-            state=_text(row, "state"),
+            state=row["state"] if short and isinstance(row.get("state"), str) else None,
             status=row["status"] if isinstance(row.get("status"), str) else None,
             pid=pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
             started_at=started if isinstance(started, int) and not isinstance(started, bool) else None,

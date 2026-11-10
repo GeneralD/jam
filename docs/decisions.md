@@ -85,10 +85,18 @@ v1 ships only the Claude Code harness adapter and no environment adapter. jam
 does not depend on a terminal multiplexer: it works for sessions that are
 registered with Claude Code's background session stack (visible in
 `claude agents` with an `id`). A session that is not registered there is out of
-scope for v1, and the README states that requirement. A foreground session
-shows up there as a row without an `id`, which jam skips; in the one check made,
-a worker's message woke one all the same (see "Cross-session messages and
-permission modes" under "Plugin platform facts").
+scope for `spawn`, `stop` and `close`, and the README states that requirement.
+A foreground session shows up there as a row without an `id`. Until 2026-11-09
+jam skipped it; since then (#47) `list` shows it read-only, with `id` and
+`state` null and the rest as reported, so a session can find a foreground peer
+by `name` and message it, while `stop` and `close`, which take the short `id`,
+do not reach it: a foreground session is ended by the person at its keyboard.
+The owner chose on 2026-11-09 to show these rows by default rather than behind
+an `--include-foreground` flag, because finding a foreground peer is what they
+are for. A dedicated field was not added: a null `id` already says that `stop`
+and `close` cannot take the row, and the `list` description says so.
+In the one check made, a worker's message woke one (see "Cross-session messages
+and permission modes" under "Plugin platform facts").
 The environment seam stays so that a zellij adapter can be added later without
 touching the core, but it is not planned. Codex and other harnesses are out of
 scope.
@@ -312,9 +320,12 @@ pass).
   sessions and their shell commands, `id` is null in a foreground session (the
   check above covers one that inherited a job directory) and not guaranteed over
   MCP; the caller then runs `whoami` through Bash and matches its current
-  `session_id` in `list`. The foreground session tried (2026-10-28) had no row
-  there: `claude agents` listed it without an `id`, which `list` skips, so for it
-  the match finds nothing; it has no short id, and `whoami` leaves `id` null.
+  `session_id` in `list`. The foreground session tried (2026-10-28) was listed
+  by `claude agents` without an `id`, which `list` skipped until 2026-11-09.
+  Since then (#47) such a row is listed with `id` null, so the match should find
+  it and say the same thing: it has no short id, and `whoami` leaves `id` null.
+  That a foreground session's `session_id` equals the `sessionId` of its row was
+  not checked; where it does not, no row matches and the short id is unknown.
   Reading the short id from the harness listing inside `whoami` would add a
   harness call and is deferred. Only the two named
   variables are read: another `CLAUDE_CODE_SESSION_*` variable carries a
@@ -1468,9 +1479,12 @@ checked against the release notes for
   `name` and `status`, but no `id` and no `state`. A session's transcript is a
   JSONL file in the project directory named after its `sessionId`; `claude
   logs` shows only a terminal redraw. A row once came back without `id`; it may
-  have been such a row, but the cause was not established. The adapter skips a
-  row without a usable id, so `list` and `stop` do not reach a foreground
-  session, and the native `ListAgents` shows it by name.
+  have been such a row, but the cause was not established. Since 2026-11-09
+  (#47) the adapter lists a row without a usable `id` read-only when it carries
+  a `sessionId`, with `id` and `state` null, so `list` shows a foreground
+  session while `stop` and `close` do not reach it; a row with neither is
+  dropped, and the native `ListAgents` shows a foreground session by name as
+  before.
 - **Cross-session messages and permission modes (observed on 2.1.309, 2026-10-24
   and 2026-10-28).** The `SendMessage` tool description says that a session
   running in a different permission mode holds cross-session messages for its
@@ -1680,4 +1694,6 @@ session" under "Plugin platform facts"), and what `/reload-plugins` gives a
 running session beyond the sessions on 2.1.309 that were checked: other
 versions, a second session's hooks, and whether the SessionStart hooks run in a
 reloaded foreground session (the MCP server `instructions` did arrive in one;
-see "MCP server instructions" under "Plugin platform facts").
+see "MCP server instructions" under "Plugin platform facts"). Also unverified:
+whether a foreground session's `session_id` equals the `sessionId` of its row
+(D12).

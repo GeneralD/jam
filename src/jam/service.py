@@ -79,8 +79,8 @@ class Listing:
 
 
 def joined(sessions: Sequence[Session], records: Mapping[str, Record | None]) -> tuple[Listed, ...]:
-    """Harness rows in harness order, each with its note if one exists. Notes without a row are dropped."""
-    return tuple(Listed(session, records.get(session.id)) for session in sessions)
+    """Harness rows in harness order, each with its note if one exists. Notes without a row are dropped, and a row without an id has no note (#47)."""
+    return tuple(Listed(session, None if session.id is None else records.get(session.id)) for session in sessions)
 
 
 # Leads a close failure that came after the stop, so that clipping a long harness message cannot cut it off. It claims only that the removal step failed:
@@ -134,9 +134,10 @@ class Jam:
         return SpawnResult(spawned, _joined_problems(_ticket_problem(ticket_error, spawned.id), self._recorded(spawned.id)))
 
     def list(self, include_exited: bool = False, cwd: str | None = None) -> Listing:
+        """Harness rows with jam's notes. A note is keyed by the short id, so a foreground row, which has none, is not looked up (#47)."""
         sessions = self._harness.list(include_exited, cwd)
         try:
-            records = {session.id: self._registry.record(session.id) for session in sessions}
+            records = {session.id: self._registry.record(session.id) for session in sessions if session.id is not None}
         except RegistryError as exc:
             return Listing(joined(sessions, {}), str(exc))
         return Listing(joined(sessions, records), None)
