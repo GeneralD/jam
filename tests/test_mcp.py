@@ -125,7 +125,7 @@ class MethodTest(unittest.TestCase):
 
     def test_there_is_no_lifecycle_state(self):
         runtime = runtime_for()
-        self.assertEqual([tool["name"] for tool in answer(request("tools/list"), runtime)["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
+        self.assertEqual([tool["name"] for tool in answer(request("tools/list"), runtime)["result"]["tools"]], ["spawn", "list", "peek", "stop", "close", "whoami"])
         self.assertFalse(tool_result(answer(tool_call("whoami"), runtime))[0])
         self.assertEqual(answer(request("server/discover"), runtime)["error"]["code"], -32601)
         for _ in range(2):

@@ -137,7 +137,7 @@ class RunTest(LauncherTestCase):
     def test_help_exits_zero_and_lists_the_commands(self):
         proc = self.jam("--help")
         self.assertExit(proc, 0)
-        for command in ("spawn", "list", "stop", "close", "whoami"):
+        for command in ("spawn", "list", "peek", "stop", "close", "whoami"):
             self.assertIn(command, proc.out)
 
     def test_mcp_answers_exactly_two_lines_and_writes_nothing_to_stderr(self):
@@ -147,7 +147,7 @@ class RunTest(LauncherTestCase):
         self.assertEqual(proc.err, "")
         replies = [json.loads(line) for line in proc.out.splitlines()]
         self.assertEqual([reply["id"] for reply in replies], [1, 2])
-        self.assertEqual([tool["name"] for tool in replies[1]["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
+        self.assertEqual([tool["name"] for tool in replies[1]["result"]["tools"]], ["spawn", "list", "peek", "stop", "close", "whoami"])
         # The server's own guidance: the notice without a session id, naming this launcher; the stripped environment has no data directory (#31).
         instructions = replies[0]["result"]["instructions"]
         self.assertTrue(instructions.startswith("jam lets this session"))

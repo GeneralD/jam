@@ -15,7 +15,7 @@ from typing import Any, Final, Optional
 
 from .errors import DiscardRequired, HarnessError, InvalidRequest, RegistryError, UnparseableOutput, WorkspaceNotTrusted
 from .service import Listed, Listing, SpawnResult
-from .session import Identity, Session
+from .session import Identity, Peeked, Session, Turn
 
 MAX_FAILURE_CHARS: Final = 2000
 MAX_RAW_CHARS: Final = 200
@@ -79,6 +79,14 @@ def closed_object(closed: Closed) -> dict[str, Any]:
     return {"id": closed.id, "closed": True}
 
 
+def turn_object(turn: Turn) -> dict[str, Any]:
+    return {"from": turn.origin, "prompt": turn.prompt, "reply": turn.reply, "tools": list(turn.tools), "at": turn.at}
+
+
+def peeked_object(peeked: Peeked) -> dict[str, Any]:
+    return {**session_row(peeked.session), "turns": [turn_object(turn) for turn in peeked.turns], "problem": peeked.problem}
+
+
 def identity_object(identity: Identity) -> dict[str, Any]:
     return {"session_id": identity.session_id, "id": identity.id}
 
@@ -87,6 +95,7 @@ _OBJECTS: Final = {
     SpawnResult: spawn_object,
     Listing: listing_object,
     Session: session_row,
+    Peeked: peeked_object,
     Stopped: stopped_object,
     Closed: closed_object,
     Identity: identity_object,

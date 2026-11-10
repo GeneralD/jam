@@ -9,7 +9,7 @@ import support  # noqa: F401  (puts src/ on sys.path)
 from jam.errors import HarnessError, InvalidRequest, RegistryError, UnparseableOutput, WorkspaceNotTrusted
 from jam.registry import Record
 from jam.service import Listed, Listing, SpawnResult
-from jam.session import Spawned
+from jam.session import Peeked, Session, Spawned, Turn
 
 from test_operations import HINT, SESSION_ID, identity, lazy
 from test_service import FOREGROUND_SESSION_ID, foreground, session
@@ -125,8 +125,8 @@ class FailureMappingTest(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 self.assertNotIn(HINT, failure("spawn", error))
 
-    def test_the_hint_never_appears_for_list_stop_close_or_whoami(self):
-        for operation in ("list", "stop", "close", "whoami"):
+    def test_the_hint_never_appears_for_list_peek_stop_close_or_whoami(self):
+        for operation in ("list", "peek", "stop", "close", "whoami"):
             for error in (HarnessError("boom"), RegistryError("busy"), RuntimeError("x"), InvalidRequest("bad")):
                 with self.subTest(operation=operation, error=type(error).__name__):
                     self.assertNotIn(HINT, failure(operation, error))
@@ -182,6 +182,30 @@ class SanitisingTest(unittest.TestCase):
                 self.assertLessEqual(len(text), LIMIT)
                 self.assertIn(HINT, text)
 
+
+
+class PeekedObjectTest(unittest.TestCase):
+    ROW = Session(id="aaaa1111", session_id="aaaa1111-full", name="n", cwd="/w", kind="background", state="done", status="idle")
+
+    def test_a_peek_is_the_row_followed_by_its_turns_and_the_problem(self):
+        turns = (Turn("peer", "report", "done", ("Bash", "Edit"), "2026-11-09T10:00:00.000Z"), Turn(None, None, "still going", (), None))
+        found = json.loads(reporting.rendered(Peeked(self.ROW, turns)))
+        self.assertEqual(list(found), ["id", "session_id", "name", "cwd", "kind", "state", "status", "turns", "problem"])
+        self.assertEqual(
+            found["turns"],
+            [
+                {"from": "peer", "prompt": "report", "reply": "done", "tools": ["Bash", "Edit"], "at": "2026-11-09T10:00:00.000Z"},
+                {"from": None, "prompt": None, "reply": "still going", "tools": [], "at": None},
+            ],
+        )
+        self.assertIsNone(found["problem"])
+
+    def test_a_problem_comes_with_no_turns(self):
+        found = json.loads(reporting.rendered(Peeked(self.ROW, (), "no transcript was found for this session")))
+        self.assertEqual((found["turns"], found["problem"]), ([], "no transcript was found for this session"))
+
+    def test_text_keeps_its_real_characters(self):
+        self.assertIn("済み", reporting.rendered(Peeked(self.ROW, (Turn("user", "直して", "済み", (), None),))))
 
 if __name__ == "__main__":
     unittest.main()

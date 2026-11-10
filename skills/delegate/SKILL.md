@@ -5,13 +5,13 @@ description: Delegate work in another repository to a session started there with
 
 # Delegating work to another repository
 
-jam starts, lists, stops and closes sessions of the agent harness you run on —
-background Claude Code sessions on Claude Code, `devin -p` sessions on the
-Devin CLI. Messages between sessions go through the harness's own primitive:
+jam starts, lists, peeks at, stops and closes sessions of the agent harness you
+run on — background Claude Code sessions on Claude Code, `devin -p` sessions on
+the Devin CLI. Messages between sessions go through the harness's own primitive:
 `SendMessage` on Claude Code, `devin -r <id> -p "<message>"` on Devin. Run jam
-through its MCP tools (`mcp__plugin_jam_jam__spawn`, `__list`, `__stop`,
-`__close`, `__whoami`) or, when they are not connected, through the command line that the
-jam session notice gives. Do not guess where the plugin is installed.
+through its MCP tools (`mcp__plugin_jam_jam__spawn`, `__list`, `__peek`, `__stop`,
+`__close`, `__whoami`) or, when they are not connected, through the command line
+that the jam session notice gives. Do not guess where the plugin is installed.
 
 ## When to delegate
 
@@ -48,24 +48,24 @@ and what is left open."
 
 ## Wait and reply
 
-- Do not poll `list` or `ListAgents`, and do not ask "are you done?". To hear
-  when the session finishes its turn, call `SendMessage` with its name,
+- Do not poll `list`, `ListAgents` or `peek`, and do not ask "are you done?". To
+  hear when the session finishes its turn, call `SendMessage` with its name,
   `notify_when_idle: true` and a one-line message such as "No reply needed."
-  (the session receives it; an empty `message` is refused), then carry on or
-  end your turn. An idle notice from a session whose report you already
-  received and checked needs no action.
+  (the session receives it; an empty `message` is refused), then carry on or end
+  your turn. An idle notice from a session whose report you already received and
+  checked needs no action.
+- `peek` shows where a session got to without interrupting it (not on Devin).
 - To reply to a `<cross-session-message>`, use its `from-name` as your `to`
   when it has one, else its `from`: a socket path in `from` goes stale.
 
 ## On the Devin CLI
 
-Messaging is `devin -r <id> -p "<message>"`, run through `exec` in the
-session's own directory: it resumes the session, and the command's output IS
-the peer's reply, so the call blocks until the peer answers and there is no
-`notify_when_idle` to wait on; a reply the peer owes you comes the same way,
-from its side. `whoami` cannot answer on Devin (no session id reaches a
-session's environment), so find your row in `list` by `cwd`, and address peers
-by the `id` `list` shows.
+Messaging is `devin -r <id> -p "<message>"`, run through `exec` in the session's
+directory: it resumes the session, and the command's output IS the peer's reply,
+so the call blocks until the peer answers and there is no `notify_when_idle` to
+wait on; a reply the peer owes you comes the same way, from its side. `whoami`
+cannot answer on Devin (no session id reaches a session's environment), so find
+your row in `list` by `cwd`, and address peers by the `id` `list` shows.
 
 ## Peers, not orders
 

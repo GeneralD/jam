@@ -18,7 +18,7 @@ from jam.errors import (
     WorkspaceNotTrusted,
 )
 from jam.harness.claude import RunResult
-from jam.harness.devin import DevinHarness
+from jam.harness.devin import NO_PEEK, DevinHarness
 from jam.registry import Registry
 from jam.service import Jam
 from jam.session import SpawnOptions
@@ -322,6 +322,19 @@ class RemoveTest(Case):
         with self.assertRaises(StillListed):
             harness.remove("alpha-fjord")
 
+
+
+class PeekTest(Case):
+    def test_peek_is_refused_before_anything_runs(self):
+        harness, spawner = self.harness()
+        with self.assertRaises(InvalidRequest) as caught:
+            harness.peek("bravo-mesa", 3)
+        self.assertEqual(str(caught.exception), NO_PEEK)
+        self.assertEqual(spawner.calls, [])
+
+    def test_the_refusal_says_why_and_names_no_path(self):
+        self.assertIn("Claude Code", NO_PEEK)
+        self.assertNotIn("/", NO_PEEK)
 
 if __name__ == "__main__":
     unittest.main()
