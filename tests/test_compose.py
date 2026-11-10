@@ -177,5 +177,30 @@ class PluginVersionTest(ComposeTestCase):
         self.assertEqual(compose.plugin_version(self.root / "dir"), "unknown")
 
 
+
+class PeekTest(ComposeTestCase):
+    def transcript(self, config):
+        path = config / "projects" / "-work" / f"{LIVE['sessionId']}.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"type": "user", "origin": {"kind": "human"}, "message": {"content": "do it"}}) + "\n", encoding="utf-8")
+
+    def peeked(self, env):
+        return compose.build_runtime(str(self.data), env, runner=FakeRunner(agents(LIVE))).jam().peek("aaaa1111", 3)
+
+    def test_peek_reads_under_the_configuration_directory_the_environment_names(self):
+        config = self.root / "config"
+        self.transcript(config)
+        self.assertEqual([turn.prompt for turn in self.peeked({"CLAUDE_CONFIG_DIR": str(config), "HOME": str(self.root / "elsewhere")}).turns], ["do it"])
+
+    def test_without_that_variable_it_reads_under_the_home_directory(self):
+        home = self.root / "home"
+        self.transcript(home / ".claude")
+        self.assertEqual([turn.prompt for turn in self.peeked({"HOME": str(home)}).turns], ["do it"])
+
+    def test_a_devin_environment_refuses_peek(self):
+        runtime = compose.build_runtime(None, {"AI_AGENT": "devin_cli", "PLUGIN_DATA": str(self.data)}, runner=FakeRunner())
+        with self.assertRaises(InvalidRequest):
+            runtime.jam().peek("bravo-mesa", 3)
+
 if __name__ == "__main__":
     unittest.main()

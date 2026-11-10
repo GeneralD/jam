@@ -67,6 +67,13 @@ def _harness_parts(env: Mapping[str, str]) -> tuple:
     return claude_env, ClaudeHarness
 
 
+def _harness(harness_type: type, runner: Optional[Runner], env: Mapping[str, str]) -> Any:
+    """The adapter. Claude Code's reads transcripts under the configuration directory this environment names (D20)."""
+    if harness_type is ClaudeHarness:
+        return ClaudeHarness(runner=runner, config_dir=claude_env.config_dir(env))
+    return harness_type(runner=runner)
+
+
 def build_runtime(data_dir_flag: Optional[str], env: Mapping[str, str], runner: Optional[Runner] = None) -> Runtime:
     """A Runtime over the real adapter. `runner` is the seam that keeps tests from starting sessions.
 
@@ -79,7 +86,7 @@ def build_runtime(data_dir_flag: Optional[str], env: Mapping[str, str], runner: 
     env_module, harness_type = _harness_parts(env)
     directory = env_module.data_dir(data_dir_flag, env)
     return Runtime(
-        lambda: Jam(harness_type(runner=runner), registry_for(directory), Tickets(directory)),
+        lambda: Jam(_harness(harness_type, runner, env), registry_for(directory), Tickets(directory)),
         lambda: env_module.identity(env),
         lambda: claude_hooks.server_instructions(directory),
     )

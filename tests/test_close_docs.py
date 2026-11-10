@@ -14,9 +14,9 @@ from test_spawn_docs import DECISIONS, README, flat, section
 class ReadmeTest(unittest.TestCase):
     def test_the_verb_is_in_the_design_the_status_and_the_feature_list(self):
         design = flat(section(README, "Design"))
-        self.assertIn("verbs: spawn / list / stop / close / whoami", design)
-        self.assertIn("`spawn`, `list`, `stop`, `close`, and `whoami` as tools", design)
-        self.assertIn("with `spawn`, `list`, `stop`, `close`, and `whoami`", flat(section(README, "Status")))
+        self.assertIn("verbs: spawn / list / peek / stop / close / whoami", design)
+        self.assertIn("`spawn`, `list`, `peek`, `stop`, `close`, and `whoami` as tools", design)
+        self.assertIn("with `spawn`, `list`, `peek`, `stop`, `close`, and `whoami`", flat(section(README, "Status")))
         self.assertIn("**close** it, which also deletes it, when the owner asks for that or has said to (D17)", flat(section(README, "What it does")))
         self.assertIn("A session cannot close itself, and work that exists nowhere else is deleted only with the value its refusal named.", flat(README))
         for removed in ("verbs: spawn / list / stop / whoami", "`stop`, and `whoami` as tools", "`stop`, and `whoami`, plus three"):
@@ -28,10 +28,10 @@ class DecisionsTest(unittest.TestCase):
     def test_every_statement_of_the_verb_set_names_close(self):
         text = flat(DECISIONS)
         for phrase in (
-            "the verbs `spawn`, `list`, `stop`, `close`, and `whoami` (D12 shows how the entry points expose them; `close` is D17)",
-            "`spawn`, `list`, `stop`, `close`, and `whoami` are rows of one operations table",
-            "and `stop`, `close` and `whoami` never touch the registry",
-            "`mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, `__close`, and `__whoami`",
+            "the verbs `spawn`, `list`, `peek`, `stop`, `close`, and `whoami` (D12 shows how the entry points expose them; `close` is D17, `peek` D20)",
+            "`spawn`, `list`, `peek`, `stop`, `close`, and `whoami` are rows of one operations table",
+            "and `peek`, `stop`, `close` and `whoami` never touch the registry",
+            "`mcp__plugin_jam_jam__spawn`, `__list`, `__peek`, `__stop`, `__close`, and `__whoami`",
             "a `prune` verb (a `remove` one was added as `close`, D17)",
             "closing one only when the owner asks (D17)",
         ):

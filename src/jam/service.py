@@ -18,7 +18,8 @@ from typing import Final, Protocol
 from .errors import DiscardRequired, HarnessError, InvalidRequest, RegistryError
 from .naming import prefixed, project_label
 from .registry import Record, Registry, spawned_marked
-from .session import NO_DISCARD, NO_OPTIONS, Identity, Session, SpawnOptions, Spawned, is_discard_value
+from .session import NO_DISCARD, NO_OPTIONS, Identity, Peeked, Session, SpawnOptions, Spawned, is_discard_value
+from .turn_bounds import DEFAULT_TURNS, bounded_peek
 
 
 class Harness(Protocol):
@@ -39,6 +40,8 @@ class Harness(Protocol):
     def stop(self, session_id: str) -> Session | None: ...
 
     def remove(self, session_id: str, discard_unpushed: str | None = None) -> None: ...
+
+    def peek(self, session_id: str, count: int) -> Peeked: ...
 
 
 class TicketWriter(Protocol):
@@ -141,6 +144,10 @@ class Jam:
         except RegistryError as exc:
             return Listing(joined(sessions, {}), str(exc))
         return Listing(joined(sessions, records), None)
+
+    def peek(self, session_id: str, count: int = DEFAULT_TURNS) -> Peeked:
+        """The session's last `count` turns as the harness read them, bounded here so that every adapter returns the same at most (D20). No note is read."""
+        return bounded_peek(self._harness.peek(session_id, count))
 
     def stop(self, session_id: str) -> Session | None:
         # A stopped session stays in the full listing, so its note stays true.

@@ -75,6 +75,8 @@ def add_param(parser: argparse.ArgumentParser, param: operations.Param) -> None:
         parser.add_argument(param.name, metavar=param.name.upper(), help=param.description)
     elif param.kind == "boolean":
         parser.add_argument(flag_of(param), dest=param.name, action="store_true", default=None, help=param.description)
+    elif param.kind == "integer":
+        parser.add_argument(flag_of(param), dest=param.name, metavar="N", type=int, required=param.required, help=param.description)
     else:
         metavar = "ABSOLUTE_DIR" if param.absolute else param.name.upper()
         parser.add_argument(flag_of(param), dest=param.name, metavar=metavar, required=param.required, help=param.description)

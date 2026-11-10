@@ -101,6 +101,26 @@ class Session:
         )
 
 
+@dataclass(frozen=True)
+class Turn:
+    """One turn of a session as `peek` shows it (D20): what started it, what the session answered, and the tools it named."""
+
+    origin: str | None  # "user" for a prompt, "peer" for a message from another session; None where the start is out of reach
+    prompt: str | None  # None where the start is out of reach
+    reply: str  # the session's text answers, joined; "" when it has said nothing yet
+    tools: tuple[str, ...]  # the names of the tools it used, each once, in the order first used
+    at: str | None  # the timestamp of the turn's last record, as the harness wrote it
+
+
+@dataclass(frozen=True)
+class Peeked:
+    """What `peek` returns: the session's row and its last turns, oldest first."""
+
+    session: Session
+    turns: tuple[Turn, ...]
+    problem: str | None = None  # why no turn could be read; None when the transcript was read, even one with no turn in it
+
+
 def _text(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
     return value if isinstance(value, str) else ""

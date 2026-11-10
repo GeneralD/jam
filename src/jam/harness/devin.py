@@ -33,7 +33,7 @@ from ..errors import (
     StillListed,
     WorkspaceNotTrusted,
 )
-from ..session import NO_DISCARD, NO_OPTIONS, Session, SpawnOptions, Spawned, is_id, is_model
+from ..session import NO_DISCARD, NO_OPTIONS, Peeked, Session, SpawnOptions, Spawned, is_id, is_model
 from .claude import NEUTRAL_DIR, Runner, run_subprocess
 
 SPAWN_VISIBLE: Final = 20.0  # bound for the new session to appear in `devin list`
@@ -87,6 +87,9 @@ def _chosen_model(options: object) -> Optional[str]:
 # (args, cwd) -> (process-with-pid/poll, log path); the seam that keeps tests from starting sessions.
 Spawner = Callable[[Sequence[str], str], "tuple[Any, str]"]
 
+# `devin -r` resumes a session, so it is no read-only view, and no store of Devin's turns was there to check (D20).
+NO_PEEK: Final = "peek reads Claude Code transcripts; jam knows no read-only view of a Devin session's turns"
+
 
 class DevinHarness:
     names_sessions: Final = False  # Devin titles a session itself, so a name is refused and no prefix is made (D19)
@@ -107,6 +110,10 @@ class DevinHarness:
         self._db = Path(db_path).expanduser() if db_path is not None else Path(DEFAULT_DB).expanduser()
         self._visible = spawn_visible
         self._sleeper = sleeper
+
+    def peek(self, session_id: str, count: int) -> Peeked:
+        """Refused before anything runs (D20)."""
+        raise InvalidRequest(NO_PEEK)
 
     def spawn(
         self,

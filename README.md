@@ -15,6 +15,9 @@ repos instead of switching contexts by hand.
   task calls for (D18), with the project's name in front of the session's name
   (D19).
 - **List** live sessions with their IDs, working directories, and state.
+- **Peek** at a session's last turns without interrupting it: what it was asked,
+  what it answered and which tools it used, never what those tools took or
+  returned (D20).
 - **Stop** a session when it has nothing left to do, or **close** it, which also
   deletes it, when the owner asks for that or has said to (D17). A session
   cannot close itself, and work that exists nowhere else is deleted only with
@@ -42,7 +45,7 @@ jam is split into a harness-neutral core and two kinds of adapters, so new
 agents and terminal environments can be added later without touching the core.
 
 ```text
-core            session registry, verbs: spawn / list / stop / close / whoami
+core            session registry, verbs: spawn / list / peek / stop / close / whoami
  ├ harness      how a session is started, listed, stopped, and read
  └ environment  seam for terminal-specific delivery (no adapter in v1)
 messaging       the harness's own primitive (SendMessage / devin -r), taught by a skill
@@ -50,8 +53,8 @@ entry points    MCP server (plugin.json) and CLI (scripts/jam), one operations t
 ```
 
 The MCP server is declared inline in `.claude-plugin/plugin.json` and offers
-`spawn`, `list`, `stop`, `close`, and `whoami` as tools. The CLI is the launcher
-`scripts/jam`, run as `python3 -I <plugin root>/scripts/jam <command>`; it is
+`spawn`, `list`, `peek`, `stop`, `close`, and `whoami` as tools. The CLI is the
+launcher `scripts/jam`, run as `python3 -I <plugin root>/scripts/jam <command>`; it is
 the fallback for when the tools are not available. Both print the same JSON for
 the same arguments. The reasoning is in [docs/decisions.md](docs/decisions.md)
 (D12).
@@ -80,7 +83,8 @@ woke one in the one check made (D2). **Devin CLI** sessions are the rows
 `stop` ends the recorded process and removes the record, and messages go
 through `devin -r <id> -p`, a synchronous resume-and-answer. There is no
 session id in a Devin session's own environment, so `whoami` reports an error
-there instead of guessing. It does not depend on a terminal multiplexer. Other
+there instead of guessing, and `peek` refuses: `devin -r` resumes a session, so
+it is no read-only view (D20). It does not depend on a terminal multiplexer. Other
 harnesses and terminals are out of scope for now; the adapter seams are there
 so they can be added when needed.
 
@@ -139,7 +143,7 @@ and the points still open are under "Plugin platform facts" in
 ## Status
 
 Early development. The plugin installs from this repository and carries the MCP
-server and the CLI with `spawn`, `list`, `stop`, `close`, and `whoami`, plus three
+server and the CLI with `spawn`, `list`, `peek`, `stop`, `close`, and `whoami`, plus three
 SessionStart hooks: the notice that tells the model how to run jam, the step
 that records the start directory and, at a fresh start, turns a spawn ticket
 from the last 300 seconds into a worker mark, and the startup sweep of stale

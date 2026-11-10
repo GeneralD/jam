@@ -10,7 +10,8 @@ from jam.errors import DiscardRequired, HarnessError, InvalidRequest, RegistryEr
 from jam.harness.claude import ClaudeHarness
 from jam.registry import Record, Registry, spawned_marked
 from jam.service import Jam, Listed, Listing, SpawnResult, failure_reason, joined
-from jam.session import NO_OPTIONS, Identity, Session, SpawnOptions, Spawned
+from jam.session import NO_OPTIONS, Identity, Peeked, Session, SpawnOptions, Spawned, Turn
+from jam.turn_bounds import DEFAULT_TURNS, MAX_PROMPT_CHARS
 
 from test_claude_harness import DISCARD, INTERACTIVE, LIVE, LOCKED, STOPPED, UNPUSHED, FakeRunner, agents, ok
 from jam.harness.claude import RunResult
@@ -31,11 +32,14 @@ def foreground(**fields):
 
 
 class FakeHarness:
-    def __init__(self, sessions=(), spawn_error=None, list_error=None, on_spawn=None, remove_error=None, names_sessions=False, discards_unpushed=True):
+    def __init__(
+        self, sessions=(), spawn_error=None, list_error=None, on_spawn=None, remove_error=None, names_sessions=False, discards_unpushed=True, turns=(), peek_error=None
+    ):
         self.sessions = list(sessions)
         self.spawn_error, self.list_error, self.on_spawn, self.remove_error = spawn_error, list_error, on_spawn, remove_error
         self.names_sessions, self.discards_unpushed = names_sessions, discards_unpushed
-        self.spawn_calls, self.list_calls, self.stop_calls, self.remove_calls = [], [], [], []
+        self.turns, self.peek_error = tuple(turns), peek_error
+        self.spawn_calls, self.list_calls, self.stop_calls, self.remove_calls, self.peek_calls = [], [], [], [], []
         self.spawn_options, self.discards = [], []
 
     def spawn(self, cwd, prompt, name=None, permission_mode=None, options=NO_OPTIONS):
@@ -62,6 +66,12 @@ class FakeHarness:
         self.discards.append(discard_unpushed)
         if self.remove_error:
             raise self.remove_error
+
+    def peek(self, session_id, count):
+        self.peek_calls.append((session_id, count))
+        if self.peek_error:
+            raise self.peek_error
+        return Peeked(session(session_id), self.turns)
 
 
 class StubRegistry:
@@ -463,6 +473,26 @@ class NothingCreatedTest(ServiceTestCase):
         Jam(FakeHarness([session("aaaa1111")]), Registry(self.data)).list()
         self.assertFalse(self.data.exists())
 
+
+
+class PeekTest(unittest.TestCase):
+    def test_peek_asks_the_harness_for_the_count_and_bounds_what_comes_back(self):
+        harness, stub = FakeHarness(turns=(Turn("user", "p" * 5000, "done", ("Bash",), None),)), StubRegistry()
+        peeked = Jam(harness, stub).peek("aaaa1111", 5)
+        self.assertEqual(harness.peek_calls, [("aaaa1111", 5)])
+        self.assertEqual((peeked.session, peeked.problem), (session("aaaa1111"), None))
+        self.assertEqual(len(peeked.turns[0].prompt), MAX_PROMPT_CHARS)
+        self.assertEqual((peeked.turns[0].reply, peeked.turns[0].tools), ("done", ("Bash",)))
+        self.assertEqual((stub.updates, stub.records, stub.removes), ([], [], []))
+
+    def test_the_default_count_is_three_turns(self):
+        harness = FakeHarness()
+        Jam(harness, StubRegistry()).peek("aaaa1111")
+        self.assertEqual((harness.peek_calls, DEFAULT_TURNS), ([("aaaa1111", 3)], 3))
+
+    def test_a_harness_failure_propagates(self):
+        with self.assertRaises(HarnessError):
+            Jam(FakeHarness(peek_error=HarnessError("no session with id aaaa1111")), StubRegistry()).peek("aaaa1111")
 
 if __name__ == "__main__":
     unittest.main()

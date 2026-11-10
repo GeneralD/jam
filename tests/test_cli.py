@@ -130,6 +130,25 @@ class OtherCommandsTest(unittest.TestCase):
         run_cli(["list"], runtime_for(harness))
         self.assertEqual(harness.list_calls, [(True, "/work/x"), (False, None)])
 
+    def test_peek_passes_its_id_and_a_whole_number_of_turns(self):
+        harness = FakeHarness()
+        code, out, err = run_cli(["peek", "aaaa1111", "--turns", "2"], runtime_for(harness))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out)["id"], "aaaa1111")
+        run_cli(["peek", "aaaa1111"], runtime_for(harness))
+        self.assertEqual(harness.peek_calls, [("aaaa1111", 2), ("aaaa1111", 3)])
+
+    def test_peek_turns_out_of_range_fail_in_the_table_and_reach_no_harness(self):
+        harness = FakeHarness()
+        code, out, err = run_cli(["peek", "aaaa1111", "--turns", "0"], runtime_for(harness))
+        self.assertEqual((code, out, err), (1, "", "jam: turns must be from 1 to 20\n"))
+        self.assertEqual(harness.peek_calls, [])
+
+    def test_peek_help_names_the_flag_and_its_number(self):
+        code, out, err = run_cli(["peek", "--help"])
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("--turns N", out)
+
     def test_list_failures_have_no_hint(self):
         code, out, err = run_cli(["list"], runtime_for(FakeHarness(list_error=HarnessError("down"))))
         self.assertEqual((code, out, err), (1, "", "jam: down\n"))
@@ -224,9 +243,13 @@ class UsageTest(unittest.TestCase):
         ["close"],
         ["close", "aaaa1111", "--force"],
         ["whoami", "extra"],
+        ["peek"],
+        ["peek", "aaaa1111", "--turns"],
+        ["peek", "aaaa1111", "--turns", "three"],
+        ["peek", "aaaa1111", "bbbb2222"],
         ["spawn", "--cwd", "/work/x", "--", "an", "unquoted", "brief"],
     ]
-    COMMANDS = ("spawn", "list", "stop", "close", "whoami")
+    COMMANDS = ("spawn", "list", "peek", "stop", "close", "whoami")
 
     def test_usage_errors_return_two_with_usage_on_stderr_and_nothing_on_stdout(self):
         for argv in self.BAD:
@@ -260,7 +283,7 @@ class UsageTest(unittest.TestCase):
     def test_help_exits_zero_on_the_injected_stdout(self):
         code, out, err = run_cli(["--help"])
         self.assertEqual((code, err), (0, ""))
-        for command in ("spawn", "list", "stop", "close", "whoami"):
+        for command in ("spawn", "list", "peek", "stop", "close", "whoami"):
             self.assertIn(command, out)
 
     def test_mcp_is_not_advertised_in_the_command_list(self):
@@ -337,7 +360,7 @@ class McpCommandTest(unittest.TestCase):
         self.assertEqual(first["result"]["serverInfo"]["name"], "jam")
         manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(first["result"]["serverInfo"]["version"], manifest["version"])
-        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["spawn", "list", "stop", "close", "whoami"])
+        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["spawn", "list", "peek", "stop", "close", "whoami"])
         self.assertNotIn("instructions", first["result"])
 
     def test_the_mcp_command_hands_the_runtime_instructions_to_the_client(self):

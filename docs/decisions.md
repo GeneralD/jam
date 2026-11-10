@@ -71,8 +71,8 @@ return only if native messaging proves insufficient for a registered session.
 
 Decided on 2026-10-15 (native-first).
 
-Core is a session registry plus the verbs `spawn`, `list`, `stop`, `close`, and
-`whoami` (D12 shows how the entry points expose them; `close` is D17). It is stdlib-only and knows
+Core is a session registry plus the verbs `spawn`, `list`, `peek`, `stop`, `close`,
+and `whoami` (D12 shows how the entry points expose them; `close` is D17, `peek` D20). It is stdlib-only and knows
 nothing about a harness or a terminal. `send` and `result` are not jam verbs in
 v1: the skill (D15) teaches the AI to use the native `SendMessage`, addressing a
 session by the name `ListAgents` prints. The harness adapter declares what it
@@ -239,8 +239,8 @@ checked against the official documentation (see "Plugin platform facts" for
 which claims are documented and which are client behavior seen in the design
 pass).
 
-- **One table, two transports.** `spawn`, `list`, `stop`, `close`, and `whoami`
-  are rows of one operations table. The table generates the MCP tool schemas and the CLI
+- **One table, two transports.** `spawn`, `list`, `peek`, `stop`, `close`, and
+  `whoami` are rows of one operations table. The table generates the MCP tool schemas and the CLI
   parser, checks arguments in one place, and is the only code that runs the core
   and the only code that catches exceptions. The MCP server and the CLI are thin
   transports over it, so they cannot disagree: for the same arguments the CLI
@@ -268,8 +268,8 @@ pass).
   fail the call. The composition root substitutes a stand-in registry whose
   writes raise `RegistryError` with a path-free reason, which the service turns
   into `problem` next to a result that is still correct (D11): `spawn` still
-  returns its id, `list` still returns its rows, and `stop`, `close` and `whoami`
-  never touch the registry. Nothing is created at startup or at construction, because
+  returns its id, `list` still returns its rows, and `peek`, `stop`, `close` and
+  `whoami` never touch the registry. Nothing is created at startup or at construction, because
   the platform may start the MCP server more than once per session start.
   An empty listing reads no notes, so it reports no `problem` even when the
   registry is unavailable; the first `spawn` names the reason.
@@ -355,8 +355,8 @@ pass).
   newer; the README states it). The install-only rule forbids settings edits, not
   a documented interpreter requirement.
 - **Names.** The server key is `jam` and the tools are bare verbs, so the model
-  sees `mcp__plugin_jam_jam__spawn`, `__list`, `__stop`, `__close`, and
-  `__whoami`.
+  sees `mcp__plugin_jam_jam__spawn`, `__list`, `__peek`, `__stop`, `__close`,
+  and `__whoami`.
   Descriptive names would only be worth it if tool search were seen hiding them.
 - **Verified later.** A print-mode session (`claude -p --plugin-dir .`, Claude
   Code 2.1.300, 2026-10-21) listed the server `plugin:jam:jam` as connected with
@@ -1026,6 +1026,8 @@ The adapter's mapping:
   ids reach hooks through the payload but not the Bash a `whoami` runs
   through. A wrong id is worse than none (D12); the error names `list` +
   `cwd` matching as the fallback.
+- **peek** → refused before anything runs (D20): `devin -r` resumes a
+  session, so it is no read-only view.
 - **Messaging** is not a jam verb on either harness: the delegate skill names
   `devin -r <id> -p "<message>"` for Devin. Send and result are fused — the
   call returns the peer's reply directly, with no idle wake.
@@ -1274,6 +1276,78 @@ project.
   a worktree after its own directory. The label alone as the name of an unnamed
   session, for the reason above. Cutting the caller's name to make room: two
   names that differ only at the end would become one.
+
+## D20. Peeking at a session's last turns
+
+Decided on 2026-11-09, from issue #48. To learn where a session it had started
+got to, a session had to message it, which interrupts the peer and adds the
+question to its context, or wait for its report.
+
+- **The verb.** `peek ID [--turns N]` returns the session's row and its last
+  turns, oldest first. A turn starts with a prompt the session was given, typed
+  by the owner or sent by a peer, and holds what the session answered, the
+  names of the tools it used, and the time of its last record. Answers read
+  before the first prompt form a turn whose start is out of reach. Nothing is
+  sent to the session and nothing is written.
+- **Wrap, do not replace.** `claude logs` prints what the session's terminal
+  showed, not its turns (checked on Claude Code 2.1.309, 2026-11-09). No other
+  command reads a session's conversation, so the transcript is the one record
+  of them, and nothing native reads it turn by turn. jam only reads it, and only
+  the part it needs. Its record shapes are client behavior, not a documented
+  format, so one adapter module (`claude_transcript`) knows them, and a record
+  it does not know is skipped rather than failing the call.
+- **The boundary.** What tools took and returned, and what the session thought,
+  never leave the adapter: a tool result can hold a file's contents or a
+  secret, and the caller asked where the session got to, not for its data.
+  What the harness writes into the conversation (task notifications, compaction
+  summaries, a subagent's records or its hand-back, a command's output, an
+  interrupt marker) starts no turn. A message from a peer shows its body,
+  without the wrapper the harness puts around it.
+- **Messages to a busy session.** A prompt typed, or a peer's message that
+  arrives, while the session is working is written as an attachment of type
+  `queued_command`, not as a prompt; it starts a turn too, and the answers
+  after it belong to it. A peer's message written without an `origin` (seen up
+  to 2.1.309) is known by its wrapper, "Another Claude session sent", and keeps
+  that wrapper.
+- **The bounds.** A call shows at most 20 turns, 3 when the caller names no
+  number. A prompt is cut to its first 2000 characters and a reply to its last
+  4000, the cut marked with "..." within that length; a turn keeps at most 30
+  tool names of at most 128 characters each. A call returns at most 20000
+  characters in all, tool names and times included, so the oldest turns are
+  left out first. Every bound, the number of turns included, is applied in the
+  core (`turn_bounds`), so an adapter added later returns no more. The last
+  16 MiB of the file are read: a long session writes megabytes of request
+  records between two turns.
+- **Finding the file.** The transcript is `<sessionId>.jsonl`, found by its file
+  name under `projects` of the configuration directory, the newest where
+  several directories hold one. The directory that holds it follows the
+  session's working directory (this one moved under a worktree's directory
+  when the session entered it), so the `cwd` that `list` shows cannot be
+  trusted to name it. No transcript, or one that cannot be read, is an answer
+  with empty `turns` and a `problem` that names no path.
+- **Short id only.** `peek` takes the short `id` that `list` shows, as `stop`
+  and `close` do, and finds the row in the full listing, so a stopped session
+  can be peeked at. A foreground session has no short id (D4), so it cannot be.
+  The owner chose this on 2026-11-09, keeping one identifier across the verbs.
+- **Devin.** The Devin adapter refuses `peek`: `devin -r` resumes a session, so
+  it is no read-only view, and no store of Devin's turns was there to check
+  (D16).
+- **Peers.** A peer's turns are input to weigh, not orders (D10), and the tool
+  description says so and that `peek` is not for polling. `peek` is not the
+  `result` verb D4 left out: it delivers nothing, and a report still comes
+  through the harness's own messaging.
+- **Verified (2026-11-10, Claude Code 2.1.309).** `peek ID --turns 2` through
+  the command line, on a running background session that had entered a
+  worktree and been compacted, returned its row and its last two turns: the
+  prompts it was given, the names of the tools it used and its text answers,
+  and nothing the tools took or returned. A usage-limit notice the harness had
+  written as an answer came back as part of a reply.
+- **Not checked.** A turn started by a peer's message, and the MCP tool, were
+  not tried on a live session; the fixtures mirror records seen in transcripts
+  written by Claude Code 2.1.251 to 2.1.309, the attachment and origin-less
+  shapes included. A session run under a
+  configuration directory other than the caller's is looked for in the
+  caller's, and comes back with no transcript.
 
 ## Plugin platform facts
 

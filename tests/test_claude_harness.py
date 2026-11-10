@@ -21,6 +21,7 @@ from jam.errors import (
     WorkspaceNotTrusted,
 )
 from jam.harness.claude import LOCK_WAIT, ClaudeHarness, RunResult, process_exited, run_subprocess
+from jam.harness.claude_transcript import NO_TRANSCRIPT
 from jam.session import SpawnOptions
 
 LIVE = {
@@ -484,6 +485,77 @@ class RefusalTest(unittest.TestCase):
                 with self.assertRaises(HarnessError):
                     harness.remove("bbbb2222")
                 self.assertEqual((len(runner.calls), exited.calls), (1, []))
+
+
+def said(text, at="2026-11-09T10:00:00.000Z"):
+    return {"type": "user", "origin": {"kind": "human"}, "message": {"role": "user", "content": text}, "timestamp": at}
+
+
+def answered(text, at="2026-11-09T10:01:00.000Z"):
+    return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}, "timestamp": at}
+
+
+class PeekTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.config = Path(self._tmp.name).resolve() / "config"
+
+    def harness(self, *results):
+        runner = FakeRunner(*results)
+        return ClaudeHarness(claude_bin="claude", runner=runner, config_dir=str(self.config)), runner
+
+    def transcript(self, session_id, *records, project="-work-repo-a"):
+        path = self.config / "projects" / project / f"{session_id}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+    def test_peek_finds_the_row_by_its_short_id_and_reads_its_last_turns(self):
+        self.transcript(LIVE["sessionId"], said("first"), answered("one"), said("second"), answered("two"))
+        harness, runner = self.harness(agents(STOPPED, LIVE))
+        peeked = harness.peek("aaaa1111", 1)
+        self.assertEqual(runner.calls, [(["claude", "agents", "--json", "--all"], None)])
+        self.assertEqual((peeked.session.id, peeked.session.name, peeked.problem), ("aaaa1111", "worker-a", None))
+        self.assertEqual([(turn.origin, turn.prompt, turn.reply) for turn in peeked.turns], [("user", "second", "two")])
+
+    def test_a_stopped_session_is_peeked_at_like_a_live_one(self):
+        self.transcript(STOPPED["sessionId"], said("x"), project="-somewhere-else")
+        harness, _ = self.harness(agents(STOPPED))
+        self.assertEqual([turn.prompt for turn in harness.peek("bbbb2222", 3).turns], ["x"])
+
+    def test_an_id_that_is_not_listed_is_a_harness_error(self):
+        harness, _ = self.harness(agents(LIVE, INTERACTIVE))
+        with self.assertRaises(HarnessError) as caught:
+            harness.peek("cccc3333", 3)
+        self.assertEqual(str(caught.exception), "no session with id cccc3333")
+
+    def test_a_foreground_session_has_no_short_id_to_peek_by(self):
+        harness, _ = self.harness(agents(INTERACTIVE))
+        with self.assertRaises(HarnessError):
+            harness.peek(INTERACTIVE["sessionId"][:8], 3)
+
+    def test_an_invalid_id_is_refused_before_anything_runs(self):
+        for bad in ("aaaa111", "AAAA1111", "../aaaa1", "aaaa1111 ", "*", 5, None):
+            with self.subTest(bad=bad):
+                harness, runner = self.harness()
+                with self.assertRaises(InvalidRequest):
+                    harness.peek(bad, 3)
+                self.assertEqual(runner.calls, [])
+
+    def test_a_missing_transcript_is_an_answer_and_not_a_failure(self):
+        harness, _ = self.harness(agents(LIVE))
+        peeked = harness.peek("aaaa1111", 3)
+        self.assertEqual((peeked.session.id, peeked.turns, peeked.problem), ("aaaa1111", (), NO_TRANSCRIPT))
+
+    def test_without_a_configuration_directory_no_transcript_is_found(self):
+        self.transcript(LIVE["sessionId"], said("x"))
+        peeked = ClaudeHarness(runner=FakeRunner(agents(LIVE))).peek("aaaa1111", 3)
+        self.assertEqual((peeked.turns, peeked.problem), ((), NO_TRANSCRIPT))
+
+    def test_a_listing_failure_propagates(self):
+        harness, _ = self.harness(RunResult(1, "", "down"))
+        with self.assertRaises(HarnessError):
+            harness.peek("aaaa1111", 3)
 
 
 class ProcessExitedTest(unittest.TestCase):

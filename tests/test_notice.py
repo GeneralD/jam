@@ -23,13 +23,13 @@ PLUGIN_FILES = Path(__file__).resolve().parent.parent
 
 # The notice is spelled out line by line on purpose: a test that built the
 # expectation from the module's own constants could not notice a changed word.
-HEAD = "jam lets this session start, list, stop and close agent sessions in other directories."
+HEAD = "jam lets this session start, list, peek at, stop and close agent sessions in other directories."
 RUN = f"Run jam through Bash exactly as: {PREFIX} COMMAND"
 RUN_WITHOUT_DATA = f"Run jam through Bash exactly as: {PLAIN} COMMAND"
 RUN_UNAVAILABLE = "The jam command line is unavailable here; use the MCP tools."
-COMMANDS = "Commands: spawn --cwd ABS_DIR [--name NAME] [--model M] [--effort E] [--subagent-model S] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | stop ID | close ID [--discard-unpushed VALUE] | whoami"
+COMMANDS = "Commands: spawn --cwd ABS_DIR [--name NAME] [--model M] [--effort E] [--subagent-model S] -- BRIEF | list [--include-exited] [--cwd ABS_DIR] | peek ID [--turns N] | stop ID | close ID [--discard-unpushed VALUE] | whoami"
 QUOTE = "Quote every value (ABS_DIR, NAME, BRIEF, ID) as one shell word, so spaces, quotes and dollar signs stay literal."
-MCP = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __stop, __close, __whoami."
+MCP = "The same operations are MCP tools when the server is connected: mcp__plugin_jam_jam__spawn, __list, __peek, __stop, __close, __whoami."
 NO_NOTES = "No usable data directory was found, so jam keeps no notes in this session; spawn and list still work."
 SESSION_LINE = f"This session id: {SESSION_ID}"
 NULL_ID = "A null id from whoami does not mean that something failed: find your row in list by your current session_id, and if no row matches, the short id is unknown, so do not guess one."
@@ -238,7 +238,7 @@ def command_forms(text):
 def argv_of(form, optional):
     """The argv of one command form with placeholders filled in, with or without its [optional] parts."""
     form = form.replace("[", "").replace("]", "") if optional else re.sub(r"\[[^\]]*\]", "", form)
-    substitutes = {"ABS_DIR": "/abs/dir", "NAME": "worker-1", "M": "sonnet", "E": "low", "S": "haiku", "BRIEF": "do the thing", "ID": "aaaa1111", "VALUE": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c@0123456789abcdef0123456789abcdef"}
+    substitutes = {"ABS_DIR": "/abs/dir", "NAME": "worker-1", "M": "sonnet", "E": "low", "S": "haiku", "BRIEF": "do the thing", "ID": "aaaa1111", "N": "3", "VALUE": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c@0123456789abcdef0123456789abcdef"}
     return [substitutes.get(token, token) for token in shlex.split(form)]
 
 

@@ -2,7 +2,8 @@
 
 Wraps the native background-session commands (`claude --bg`, `claude agents
 --json`, `claude stop`, `claude rm`) instead of replacing them. Every call goes
-through an injectable runner so tests never start a real session.
+through an injectable runner so tests never start a real session. `peek` reads
+the transcript, which no native command shows turn by turn (D20).
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ from ..errors import (
     UnparseableOutput,
     WorkspaceNotTrusted,
 )
-from ..session import EFFORTS, NO_OPTIONS, Session, SpawnOptions, Spawned, is_discard_value, is_model
+from ..session import EFFORTS, NO_OPTIONS, Peeked, Session, SpawnOptions, Spawned, is_discard_value, is_model
+from . import claude_transcript
 from .claude_env import subagent_settings
 
 DEFAULT_TIMEOUT: Final = 60.0
@@ -148,10 +150,11 @@ class ClaudeHarness:
     names_sessions: Final = True  # `claude --bg -n NAME`; the core puts the project in front (D19)
     discards_unpushed: Final = True  # `claude rm --discard-unpushed VALUE` with the value a refusal named (D17)
 
-    def __init__(self, claude_bin: str = "claude", runner: Runner | None = None, exited: Exited | None = None):
+    def __init__(self, claude_bin: str = "claude", runner: Runner | None = None, exited: Exited | None = None, config_dir: str | None = None):
         self._bin = claude_bin
         self._run: Runner = runner or run_subprocess
         self._exited: Exited = exited or process_exited
+        self._config_dir = config_dir  # where transcripts are read for `peek`; None finds none
 
     def spawn(
         self,
@@ -244,6 +247,14 @@ class ClaudeHarness:
             raise self._removal_failure(session_id, result)
         if self._listed(session_id) is not None:
             raise StillListed(session_id)
+
+    def peek(self, session_id: str, count: int) -> Peeked:
+        """The row of a session found by its short id in the full listing, with its last `count` turns from its transcript. Nothing is written."""
+        session_id = self._valid_id(session_id)
+        row = self._listed(session_id)
+        if row is None:
+            raise HarnessError(f"no session with id {session_id}")
+        return claude_transcript.peeked(row, self._config_dir, count)
 
     def _removed(self, args: Sequence[str]) -> RunResult:
         """`claude rm`, run once more when it refused only because the stopping process still held the worktree lock and has since exited."""
